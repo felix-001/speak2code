@@ -4,6 +4,8 @@
 
 MCP Server 向灵矽注册编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。用户在网页上以语音或文字与灵矽交互；灵矽理解和编排需求，调用 MCP Server 的能力将任务交给端侧 Codex / Claude。端侧 Agent 在本地工作区中读取代码、修改文件并运行测试，执行状态和代码差异经灵矽返回网页供用户确认。
 
+规划中的实时画面链路由 MCP Server 获取当前工作画面，并负责发现接收端、发起和控制向外投屏（如使用 AirPlay 等兼容协议）；手机 / Pad 也可在网页中观看画面，同时与灵矽交互。网页观看不依赖 AirPlay 接收能力。
+
 > 当前仓库是概念验证阶段：已有可交互的前端演示和系统架构设计，尚未接入真实的灵矽服务、MCP Server 或本地编码 Agent。
 
 ## 体验原型
@@ -32,17 +34,20 @@ open prototypes/index.html
 flowchart LR
 	subgraph client["用户入口"]
 		device["手机 / Pad 浏览器"]
+		display["电视等投屏接收端"]
 	end
 
 	subgraph server["MCP Server"]
 		page["Web 页面<br/>由 Web Server 提供"]
 		tools["MCP 能力<br/>任务下发 · 结果回传"]
+		casting["画面采集与投屏<br/>获取画面 · 发起 / 控制投屏"]
 	end
 	lingxi["灵矽<br/>接收编程任务 · 理解需求"]
 
 	subgraph edge["端侧开发环境"]
 		agents["Codex / Claude<br/>执行编程任务"]
 		workspace["本地代码仓库<br/>读取代码 · 修改文件 · 运行测试"]
+		screen["当前工作画面"]
 		agents <--> workspace
 	end
 
@@ -52,15 +57,18 @@ flowchart LR
 	lingxi -->|"调用已注册的工具"| tools
 	tools -->|"调用端侧 Agent"| agents
 	agents -.->|"执行状态 · 代码变更 · 测试结果"| tools
+	screen -->|"提供画面来源"| casting
+	casting -->|"发起投屏 · AirPlay 等协议"| display
+	casting -->|"网页画面流"| page
 ```
 
 各层职责如下：
 
 | 层级 | 职责 |
 | --- | --- |
-| 用户入口 | 手机 / Pad 浏览器打开 MCP Server 的 Web Server 提供的网页，在页面上与灵矽交互并查看结果 |
+| 用户入口 | 手机 / Pad 浏览器打开 MCP Server 的 Web Server 提供的网页，在页面上与灵矽交互、查看结果与实时画面；兼容的电视等设备可接收投屏 |
 | 灵矽 | 识别用户意图，补充任务上下文，编排一次完整的编程任务 |
-| MCP Server | 向灵矽注册工具能力并接受调用；同时通过 Web Server 提供手机 / Pad 网页 |
+| MCP Server | 向灵矽注册工具能力并接受调用；通过 Web Server 提供手机 / Pad 网页；获取当前工作画面并负责发现接收端、发起和控制向外投屏，也可供网页观看 |
 | 端侧 Agent | 在用户授权的本地仓库中读取、编辑代码并执行验证 |
 | 本地工作区 | 保存真实代码、变更和测试结果；未经确认不应直接合并变更 |
 
@@ -93,6 +101,7 @@ flowchart LR
 
 - 灵矽后端连接和真实会话管理。
 - MCP Server 的能力注册、网页托管、页面与灵矽的交互、任务协议、鉴权和断线重试。
+- MCP Server 获取当前工作画面、发现接收端、发起和控制 AirPlay 等兼容协议投屏及网页观看；包括采集授权和观看权限控制。
 - Codex / Claude 的真实调用，以及本地工作区权限控制。
 - 真实文件变更、补丁审查、测试执行和 Git 分支 / 合并操作。
 - 任务持久化、历史记录、多人协作和生产环境部署。
