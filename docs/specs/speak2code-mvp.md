@@ -3,7 +3,7 @@
 - 状态：Draft
 - 版本：0.1
 - 日期：2026-10-23
-- 依据：`README.md`、`design/architecture.md`、`prototypes/index.html`
+- 依据：`README.md`、`docs/design/architecture.md`、`prototypes/index.html`
 
 ## 1. 目标
 

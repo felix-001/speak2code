@@ -64,15 +64,16 @@ flowchart LR
 | 端侧 Agent | 在用户授权的本地仓库中读取、编辑代码并执行验证 |
 | 本地工作区 | 保存真实代码、变更和测试结果；未经确认不应直接合并变更 |
 
-完整架构说明见 [design/architecture.md](design/architecture.md)。
+完整架构说明见 [docs/design/architecture.md](docs/design/architecture.md)。
 
 ## 目录结构
 
 ```text
 .
-├── design/
-│   └── architecture.md   # 系统角色与数据流设计
-├── drafts/                # 设计草稿，当前为空
+├── docs/
+│   ├── design/
+│   │   └── architecture.md   # 系统角色与数据流设计
+│   └── drafts/                # 设计草稿，当前为空
 ├── prototypes/
 │   └── index.html         # 可直接打开的交互原型
 └── README.md

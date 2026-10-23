@@ -14,14 +14,14 @@
 - 手机 / Pad 也可以通过 MCP Server 的网页观看实时画面；网页观看不等于 AirPlay 接收。
 - 画面获取、网页观看和投屏都需要考虑用户授权、会话隔离和观看权限。
 
-架构发生变化时，必须同步更新 `design/architecture.md` 和 `README.md`，并确保两处 Mermaid 图表达一致。
+架构发生变化时，必须同步更新 `docs/design/architecture.md` 和 `README.md`，并确保两处 Mermaid 图表达一致。
 
 ## 目录与修改范围
 
-- `design/architecture.md`：系统角色、数据流和职责边界。
+- `docs/design/architecture.md`：系统角色、数据流和职责边界。
 - `prototypes/index.html`：无需构建即可打开的静态交互原型。
 - `README.md`：项目说明、当前能力、边界和演进建议。
-- `drafts/`：设计草稿目录，除非任务明确要求，否则不要添加无关内容。
+- `docs/drafts/`：设计草稿目录，除非任务明确要求，否则不要添加无关内容。
 
 保持修改聚焦，不要为了文档调整引入包管理器、构建工具或后端服务。
 
@@ -40,7 +40,7 @@
 ```bash
 git diff --check
 test -f prototypes/index.html
-test -f design/architecture.md
+test -f docs/design/architecture.md
 ```
 
 不要把静态演示中的模拟响应描述成真实服务能力。
