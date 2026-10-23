@@ -17,7 +17,7 @@
   <main class="shell">
     <header class="topbar"><div class="brand"><span class="brandmark"><i data-lucide="audio-lines"></i></span>灵矽<small>VOICE TO CODE</small></div><div class="top-meta"><span>交互原型 · 未连接服务</span><button class="icon-btn" id="reset" title="重置任务" aria-label="重置任务"><i data-lucide="rotate-ccw"></i></button></div></header>
     <section class="intro"><div><div class="eyebrow">YOUR VOICE. YOUR WORKSPACE.</div><h1>把想法，写进代码。</h1><p>灵矽工作台 / 新任务</p></div><button class="demo" id="demo"><i data-lucide="play"></i>演示任务</button></section>
-    <div class="connection"><span class="dot"></span><span>灵矽</span><span class="arrow">/</span><span>MCP</span><span class="arrow">/</span><span>本地端侧</span><span class="workspace-label"><i data-lucide="folder-git-2"></i> studio-web</span></div>
+    <div class="connection"><span class="dot"></span><span>手机 / Pad 网页 ↔ 灵矽</span><span class="arrow">/</span><span>MCP Server 向灵矽注册能力</span><span class="arrow">/</span><span>本地端侧</span><span class="workspace-label"><i data-lucide="folder-git-2"></i> studio-web</span></div>
     <section aria-labelledby="conversation-heading">
       <div class="section-head"><h2 class="section-title" id="conversation-heading"><span class="number">01</span>对话</h2><span class="section-note" id="session-state">等待新任务</span></div>
       <div class="conversation">
@@ -35,7 +35,7 @@
       <div class="diff"><div class="filebar"><i data-lucide="file-code-2"></i><span>src/components/SubmitButton.tsx</span><span id="file-state">工作区快照</span></div><div class="diff-columns"><div class="code-side"><div class="code-title"><strong>原始代码</strong><span>main</span></div><div class="code-scroll" id="old-code" tabindex="0" aria-label="原始代码，左右滚动"></div></div><div class="code-side"><div class="code-title"><strong>修改后</strong><span id="new-branch">待生成</span></div><div class="code-scroll" id="new-code" tabindex="0" aria-label="修改后代码，左右滚动"><div class="code-placeholder"><i data-lucide="code-xml"></i>等待端侧提交变更</div></div></div></div></div>
       <div class="review-foot"><span id="review-state"><i data-lucide="lock-keyhole"></i>未合并 · 原始代码保持不变</span><span id="test-state">暂无验证结果</span></div>
     </section>
-    <footer class="footer"><span>LINGXI / WORKSPACE</span><span>手机 → 灵矽 → MCP → 端侧</span></footer>
+    <footer class="footer"><span>LINGXI / WORKSPACE</span><span>MCP Server 提供网页并向灵矽注册能力</span></footer>
   </main>
   <div id="toast" class="toast hidden" role="status"></div>
   <script>
@@ -57,7 +57,7 @@
     function sendTask() {
       if (!question.value.trim() || phase !== 'idle' || recording || starting) return;
       phase = 'working'; updateControls(); progress(0); byId('session-state').textContent = '演示任务进行中'; byId('question-time').textContent = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); byId('response-time').textContent = '正在响应'; byId('response').className = ''; byId('response').textContent = '收到，正在解析你的需求…'; setAgentStatus('等待任务下发', 'running');
-      timers.push(setTimeout(() => { byId('response').textContent = '我会给提交按钮增加 loading 状态，在提交时禁用按钮，并切换为“提交中…”。\n已通过 MCP 交给 ' + agent + '，完成后请确认代码差异。'; byId('response-time').textContent = '已响应'; byId('response-foot').textContent = '模拟响应 · 不代表真实服务结果'; byId('agent-description').textContent = agent + ' · 正在修改 SubmitButton.tsx'; setAgentStatus('正在编码', 'running'); progress(1); },1100));
+      timers.push(setTimeout(() => { byId('response').textContent = '我会给提交按钮增加 loading 状态，在提交时禁用按钮，并切换为“提交中…”。\n已通过 MCP Server 交给 ' + agent + '，完成后请确认代码差异。'; byId('response-time').textContent = '已响应'; byId('response-foot').textContent = '模拟响应 · 不代表真实服务结果'; byId('agent-description').textContent = agent + ' · 正在修改 SubmitButton.tsx'; setAgentStatus('正在编码', 'running'); progress(1); },1100));
       timers.push(setTimeout(() => { byId('agent-description').textContent = agent + ' · 正在检查代码变更'; setAgentStatus('正在验证', 'running'); },3400));
       timers.push(setTimeout(() => { phase = 'ready'; setAgentStatus('编码已完成', 'done'); byId('agent-description').textContent = agent + ' · 1 个文件已修改'; byId('session-state').textContent = '等待确认变更'; byId('response').textContent = '修改已完成：提交时按钮不可重复点击，并显示“提交中…”。\n请检查下方新旧代码，确认后合并。'; renderCode(byId('old-code'),original,'removed'); renderCode(byId('new-code'),modified,'added'); byId('diff-count').innerHTML = '<span class="add-count">+3</span><span class="del-count">−3</span>'; byId('new-branch').textContent = 'lingxi/loading'; byId('file-state').textContent = '1 个文件变更'; byId('test-state').textContent = '演示验证通过 · 非真实测试'; byId('merge').disabled = false; progress(2); updateControls(); },4900));
     }
