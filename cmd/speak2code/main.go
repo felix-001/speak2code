@@ -142,6 +142,7 @@ func connectLingxi(cfg config.Config, application *server.Server) {
 func connectLingxiWithAudio(cfg config.Config, application *server.Server, audio <-chan []byte) {
 	client := lingxi.Client{Config: lingxi.Config{URL: cfg.Lingxi.URL, Token: cfg.Lingxi.Token, DeviceID: cfg.Lingxi.DeviceID, ClientID: cfg.Lingxi.ClientID, HandshakeTimeout: cfg.Lingxi.HandshakeTimeout, ReconnectDelay: cfg.Lingxi.ReconnectDelay, MaxReconnects: cfg.Lingxi.MaxReconnects}, Session: application.LingxiSession(), AudioOutput: application.BroadcastAudio}
 	client.Audio = audio
+	client.SpeechText = application.BroadcastSpeech
 	if err := client.Connect(context.Background()); err != nil {
 		log.Printf("灵矽连接失败: %v", err)
 	}

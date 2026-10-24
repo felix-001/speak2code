@@ -67,16 +67,19 @@ func (s *Service) Start(ctx context.Context, taskID, request string, publish fun
 			return
 		}
 		branch := "lingxi/" + taskID
+		publish(Event{TaskID: taskID, Type: "git", Text: "正在创建分支并提交工作区变更：" + branch})
 		if err := commitWorkspace(ctx, s.workspace, branch); err != nil {
 			publish(Event{TaskID: taskID, Type: "error", Error: err.Error()})
 			return
 		}
 		if s.Push {
+			publish(Event{TaskID: taskID, Type: "git", Text: "提交完成，正在推送分支：" + branch})
 			if err := pushWorkspace(ctx, s.workspace, branch); err != nil {
 				publish(Event{TaskID: taskID, Type: "error", Error: err.Error()})
 				return
 			}
 		}
+		publish(Event{TaskID: taskID, Type: "git", Text: "正在创建 GitHub Pull Request"})
 		pr, err := s.prs.Create(ctx, branch, diff)
 		if err != nil {
 			publish(Event{TaskID: taskID, Type: "error", Error: err.Error()})
@@ -133,6 +136,7 @@ func (r CommandRunner) Run(ctx context.Context, request string, publish func(Eve
 	}
 	log.Printf("codex exit: workspace=%s", r.Workspace)
 	publish(Event{Type: "thinking", Text: "Codex 已完成编码与验证"})
+	publish(Event{Type: "git", Text: "正在标记新文件并读取 git diff"})
 	diff, err := gitDiff(ctx, r.Workspace)
 	if err != nil {
 		return "", err
@@ -146,11 +150,17 @@ func codexEventText(data []byte) string {
 		Text    string `json:"text"`
 		Message string `json:"message"`
 		Item    struct {
-			Text string `json:"text"`
+			Text    string `json:"text"`
+			Command string `json:"command"`
+			Output  string `json:"aggregated_output"`
+			Status  string `json:"status"`
 		} `json:"item"`
 	}
 	if json.Unmarshal(data, &event) != nil {
 		return strings.TrimSpace(string(data))
+	}
+	if event.Item.Command != "" {
+		return strings.TrimSpace(event.Item.Command + "\n" + event.Item.Status + "\n" + event.Item.Output)
 	}
 	for _, text := range []string{event.Text, event.Message, event.Item.Text} {
 		if strings.TrimSpace(text) != "" {

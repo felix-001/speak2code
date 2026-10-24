@@ -23,6 +23,7 @@ type Client struct {
 	Session     mcp.Session
 	Audio       <-chan []byte
 	AudioOutput func([]byte)
+	SpeechText  func(string)
 }
 
 func (c Client) Connect(ctx context.Context) error {
@@ -118,6 +119,14 @@ func (c Client) connectOnce(ctx context.Context) error {
 				c.AudioOutput(append([]byte(nil), data...))
 			}
 			continue
+		}
+		var speech struct {
+			Type  string `json:"type"`
+			State string `json:"state"`
+			Text  string `json:"text"`
+		}
+		if json.Unmarshal(data, &speech) == nil && speech.Type == "tts" && speech.State == "sentence_start" && speech.Text != "" && c.SpeechText != nil {
+			c.SpeechText(speech.Text)
 		}
 		var envelope mcp.Envelope
 		if json.Unmarshal(data, &envelope) != nil || envelope.Type != mcp.MessageType {

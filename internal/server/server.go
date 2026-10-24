@@ -24,6 +24,10 @@ func (s *Server) SetAudioSender(sender func([]byte) error) {
 	s.Audio = sender
 }
 
+func (s *Server) BroadcastSpeech(text string) {
+	s.broadcast(task.Event{Type: "lingxi_speech", Text: text})
+}
+
 func (s *Server) BroadcastAudio(data []byte) {
 	if len(data) == 0 {
 		return

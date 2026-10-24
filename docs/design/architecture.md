@@ -21,7 +21,8 @@ flowchart LR
     end
 
     device <-->|"访问网页 · 提交需求 · 查看进度"| page
-    page <-->|"对话 · 进度与结果"| lingxi
+    page <-->|"语音对话 · 回复文字与音频"| lingxi
+    tools -->|"Codex / Git 事件 · 独立执行窗口"| page
     tools -->|"注册能力"| lingxi
     lingxi -->|"调用已注册的工具"| tools
     tools -->|"调用端侧 Agent"| agents
@@ -31,7 +32,7 @@ flowchart LR
     casting -->|"网页画面流"| page
 ```
 
-MCP Server 一方面向灵矽注册编程工具能力，供灵矽在任务编排时调用；另一方面通过 Web Server 提供页面，供手机 / Pad 浏览器访问。用户在页面上与灵矽对话，灵矽调用 MCP Server 的能力驱动端侧 Codex / Claude 在本地仓库中读取、编写和测试代码，进度与结果再经灵矽返回页面。
+MCP Server 一方面向灵矽注册编程工具能力，供灵矽在任务编排时调用；另一方面通过 Web Server 提供页面，供手机 / Pad 浏览器访问。灵矽对话区仅展示 `tts / sentence_start` 返回的语音对应文字并外放二进制音频，不展示用户 STT、Codex 或 Git 消息。Codex 实际输出的执行消息、Git 阶段、diff 和 PR 直接由 MCP Server 推送到浏览器，独立执行窗口通过同源 opener 消息接收历史及实时事件，不建立重复音频连接。该窗口依赖主窗口存活，不持久化历史；浏览器不支持 WebCodecs 时以语音合成朗读同一回复文字。
 
 ## 可运行 MVP
 

@@ -84,14 +84,21 @@ func TestConnectForwardsAudioOutput(t *testing.T) {
 		defer connection.Close()
 		_, _, _ = connection.ReadMessage()
 		_ = connection.WriteJSON(map[string]string{"type": "hello", "transport": "websocket"})
+		_ = connection.WriteJSON(map[string]string{"type": "stt", "text": "用户输入"})
+		_ = connection.WriteJSON(map[string]string{"type": "tts", "state": "sentence_start", "text": "灵矽回复"})
+		_ = connection.WriteJSON(map[string]string{"type": "tts", "state": "sentence_end", "text": "不要重复"})
 		_ = connection.WriteMessage(websocket.BinaryMessage, []byte("speech"))
 	}))
 	defer server.Close()
 	output := make(chan []byte, 1)
+	var speech []string
 	url := "ws" + server.URL[len("http"):]
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, AudioOutput: func(data []byte) { output <- data }}).Connect(ctx)
+	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, AudioOutput: func(data []byte) { output <- data }, SpeechText: func(text string) { speech = append(speech, text) }}).Connect(ctx)
+	if len(speech) != 1 || speech[0] != "灵矽回复" {
+		t.Fatalf("unexpected speech text: %v", speech)
+	}
 	if err == nil {
 		t.Fatal("expected test server to close connection")
 	}

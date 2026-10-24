@@ -2,7 +2,7 @@
 
 一个探索“用自然语言驱动本地编码 Agent”的产品原型。
 
-MCP Server 向灵矽注册编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。用户在网页上以语音或文字与灵矽交互；灵矽理解和编排需求，调用 MCP Server 的能力将任务交给端侧 Codex / Claude。端侧 Agent 在本地工作区中读取代码、修改文件并运行测试，执行状态和代码差异经灵矽返回网页供用户确认。
+MCP Server 向灵矽注册编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。用户在网页上与灵矽交互；灵矽理解和编排需求，调用 MCP Server 的能力将任务交给端侧 Codex / Claude。灵矽对话区域只显示其 TTS 返回的语音对应文字，并播放下行语音；Codex 执行消息、Git 状态、diff 和 PR 由 MCP Server 推送到独立执行窗口。
 
 > 当前仓库提供一个可运行的 Go MCP Server MVP。灵矽、Codex CLI 和 GitHub 通过 `config.yaml` 配置；未配置真实凭据时仍可启动页面进行本地联调。
 
@@ -129,7 +129,8 @@ flowchart LR
     end
 
     device <-->|"访问网页 · 提交需求 · 查看进度"| page
-    page <-->|"对话 · 进度与结果"| lingxi
+    page <-->|"语音对话 · 回复文字与音频"| lingxi
+    tools -->|"Codex / Git 事件 · 独立执行窗口"| page
     tools -->|"注册能力"| lingxi
     lingxi -->|"调用已注册的工具"| tools
     tools -->|"调用端侧 Agent"| agents
@@ -150,6 +151,8 @@ flowchart LR
 | 本地工作区 | 保存真实代码、变更和测试结果；未经确认不应直接合并变更 |
 
 完整架构说明见 [docs/design/architecture.md](docs/design/architecture.md)。
+
+工作台点击“执行详情”打开独立窗口，补齐当前对话页面已收到的执行记录；对话页面关闭或刷新后不保留历史。执行窗口不播放语音。主窗口默认启用外放，浏览器可能要求先点击页面或外放开关；声音使用当前设备的默认输出设备。支持 WebCodecs Opus 时播放灵矽原始语音，不支持 WebCodecs 时使用浏览器语音合成朗读回复文字，也可以点击重播。音频解码失败时可手动重播文字。真实设备音频和灵矽事件格式仍需实际服务联调。
 
 ## 目录结构
 

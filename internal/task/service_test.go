@@ -97,6 +97,7 @@ func TestCodexEventText(t *testing.T) {
 		{"item", `{"item":{"text":"changed file"}}`, "changed file"},
 		{"plain", " raw output ", "raw output"},
 		{"empty", `{"type":"completed"}`, ""},
+		{"command", `{"item":{"command":"git status","status":"completed","aggregated_output":"clean"}}`, "git status\ncompleted\nclean"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -357,16 +358,9 @@ func TestServicePushesBeforeCreatingPR(t *testing.T) {
 
 func TestServiceReportsCommitAndPRErrors(t *testing.T) {
 	workspace := t.TempDir()
-	commitEvents := make(chan Event, 4)
+	commitEvents := make(chan Event, 8)
 	NewService(testRunner{}, &testPR{}, workspace).Start(context.Background(), "task", "request", func(event Event) { commitEvents <- event })
-	for i := 0; i < cap(commitEvents); i++ {
-		if event := <-commitEvents; event.Type == "error" {
-			goto prFailure
-		}
-	}
-	t.Fatal("expected commit error")
-
-prFailure:
+	waitForTaskError(t, commitEvents)
 	workspace = t.TempDir()
 	runGit(t, workspace, "init")
 	runGit(t, workspace, "config", "user.email", "test@example.com")
@@ -376,14 +370,9 @@ prFailure:
 	}
 	runGit(t, workspace, "add", ".")
 	runGit(t, workspace, "commit", "-m", "initial")
-	prEvents := make(chan Event, 4)
+	prEvents := make(chan Event, 8)
 	NewService(testRunner{}, failingPR{}, workspace).Start(context.Background(), "task", "request", func(event Event) { prEvents <- event })
-	for i := 0; i < cap(prEvents); i++ {
-		if event := <-prEvents; event.Type == "error" {
-			return
-		}
-	}
-	t.Fatal("expected PR error")
+	waitForTaskError(t, prEvents)
 }
 
 func TestServiceReportsPushError(t *testing.T) {
@@ -395,14 +384,29 @@ func TestServiceReportsPushError(t *testing.T) {
 	runGit(t, workspace, "commit", "--allow-empty", "-m", "initial")
 	service := NewService(testRunner{}, &testPR{}, workspace)
 	service.Push = true
-	events := make(chan Event, 4)
+	events := make(chan Event, 8)
 	service.Start(context.Background(), "task", "request", func(event Event) { events <- event })
-	for i := 0; i < cap(events); i++ {
-		if event := <-events; event.Type == "error" {
-			return
+	waitForTaskError(t, events)
+}
+
+func waitForTaskError(t *testing.T, events <-chan Event) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	seenGit := false
+	for {
+		select {
+		case event := <-events:
+			seenGit = seenGit || event.Type == "git"
+			if event.Type == "error" {
+				if !seenGit {
+					t.Fatal("missing Git progress before error")
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("expected task error")
 		}
 	}
-	t.Fatal("expected push error")
 }
 
 type failingPR struct{}
