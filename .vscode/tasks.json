@@ -1,0 +1,23 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "speak2code runtime",
+			"type": "shell",
+			"command": "go build -o /tmp/speak2code ./cmd/speak2code && /tmp/speak2code /tmp/config.yaml",
+			"isBackground": true,
+			"problemMatcher": {
+				"owner": "speak2code",
+				"pattern": {
+					"regexp": "^$"
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".*",
+					"endsPattern": "^__speak2code_stopped__$"
+				}
+			},
+			"group": "build"
+		}
+	]
+}

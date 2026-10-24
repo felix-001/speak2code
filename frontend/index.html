@@ -52,7 +52,8 @@
   </main>
   <div id="toast" class="toast" hidden></div>
   <script>
-    const $ = id => document.getElementById(id); let socket, activeTaskId = '', phase = 'idle', recognition, listening = false, speechBase = '', speechText = '', recorder, audioStream, playbackContext, playbackTime = 0;
+    const $ = id => document.getElementById(id); let socket, activeTaskId = '', executionPhase = 'idle', listening = false, playbackContext, playbackTime = 0;
+    let phase = 'idle';
     const sample = '帮我给提交按钮加一个 loading 状态，提交时禁止重复点击，按钮文字改成“提交中…”。';
     const originalLines = ['等待任务读取工作区文件'];
     function setConnection(text, state) { $('service-state').textContent = text; $('connection-dot').className = 'dot ' + state; }
@@ -60,53 +61,134 @@
     function renderCode(target, lines, type) { target.replaceChildren(); lines.forEach((line, index) => { const row = document.createElement('div'); row.className = 'code-line ' + (type || ''); const number = document.createElement('span'); number.className = 'line-no'; number.textContent = index + 1; const code = document.createElement('span'); code.textContent = line; row.append(number, code); target.append(row); }); }
     function progress(step) { document.querySelectorAll('#timeline span').forEach((item, index) => { item.className = index < step ? 'complete' : index === step ? 'current' : ''; }); }
     function setPhase(text, style) { $('status-text').textContent = text; $('agent-status').className = 'status ' + style; $('screen-status').textContent = text; }
-    function toggleVoice() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) { $('voice-title').textContent = '当前浏览器不支持语音识别'; $('voice-detail').textContent = '请手动输入需求后发送'; toast('浏览器不支持语音识别'); return; }
-      if (listening) { recognition.stop(); return; }
-      speechBase = $('question').value.trim(); speechText = ''; if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { $('voice-title').textContent = '当前浏览器不支持录音'; $('voice-detail').textContent = '请手动输入需求后发送'; toast('浏览器不支持音频采集'); return; } navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } }).then(stream => { audioStream = stream; const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'].find(type => MediaRecorder.isTypeSupported(type)) || ''; recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); recorder.ondataavailable = event => { if (event.data.size > 0 && socket && socket.readyState === WebSocket.OPEN) event.data.arrayBuffer().then(data => socket.send(data)); }; recorder.onstop = () => { stream.getTracks().forEach(track => track.stop()); audioStream = null; }; recorder.start(250); recognition = new SpeechRecognition(); recognition.lang = 'zh-CN'; recognition.continuous = true; recognition.interimResults = true;
-      recognition.onstart = () => { listening = true; $('mic').classList.add('recording'); $('mic').textContent = '■'; $('mic').setAttribute('aria-pressed', 'true'); $('voice-title').textContent = '正在聆听，请说出你的需求'; $('voice-detail').textContent = '再次点击麦克风停止识别'; };
-      recognition.onresult = event => { let interimText = ''; for (let index = event.resultIndex; index < event.results.length; index += 1) { const text = event.results[index][0].transcript; if (event.results[index].isFinal) speechText += text; else interimText += text; } $('question').value = [speechBase, speechText, interimText].filter(Boolean).join(''); $('question').dispatchEvent(new Event('input')); };
-      recognition.onerror = event => { listening = false; $('mic').classList.remove('recording'); $('mic').textContent = '♩'; $('mic').setAttribute('aria-pressed', 'false'); $('voice-title').textContent = event.error === 'not-allowed' ? '麦克风权限被拒绝' : '语音识别失败'; $('voice-detail').textContent = '请检查浏览器麦克风权限，或手动输入需求'; };
-      recognition.onend = () => { listening = false; if (recorder && recorder.state !== 'inactive') recorder.stop(); $('mic').classList.remove('recording'); $('mic').textContent = '♩'; $('mic').setAttribute('aria-pressed', 'false'); $('voice-title').textContent = $('question').value.trim() ? '语音需求已填入' : '点击麦克风开始语音输入'; $('voice-detail').textContent = '语音已发送到灵矽，请检查识别文字后点击发送'; };
-      recognition.start();
-      }).catch(error => { $('voice-title').textContent = '无法开启麦克风'; $('voice-detail').textContent = '请检查浏览器麦克风权限，或手动输入需求'; toast(error.name === 'NotAllowedError' ? '麦克风权限被拒绝' : '无法打开麦克风'); });
+    let capture;
+    async function stopVoice(send = true) {
+      const current = capture;
+      if (!current || current.stopping) return;
+      current.stopping = true;
+      $('mic').disabled = true;
+      try {
+        if (send && current.node) {
+          await new Promise((resolve, reject) => { current.stopped = resolve; current.stopTimer = setTimeout(() => reject(new Error('音频采集停止超时')), 2000); current.node.port.postMessage('stop'); });
+          await current.encoder.flush();
+        }
+      } catch (error) { toast(error.message); }
+      finally {
+        clearTimeout(current.stopTimer);
+        current.socket.removeEventListener('close', current.disconnected);
+        current.stream?.getTracks().forEach(track => track.stop());
+        current.node?.disconnect(); current.source?.disconnect();
+        if (current.encoder && current.encoder.state !== 'closed') current.encoder.close();
+        await current.context?.close();
+        if (current.started && current.socket.readyState === WebSocket.OPEN) current.socket.send(JSON.stringify({ type:'listen', state:'stop' }));
+        capture = null; listening = false;
+        $('mic').disabled = false; $('mic').classList.remove('recording'); $('mic').setAttribute('aria-pressed', 'false');
+        $('voice-title').textContent = '点击麦克风开始语音输入';
+        $('voice-detail').textContent = send ? '音频已发送给灵矽' : '录音已结束';
+      }
     }
+    async function toggleVoice() {
+      if (listening) { await stopVoice(); return; }
+      if (capture || !socket || socket.readyState !== WebSocket.OPEN) return;
+      stopPlayback(); replaying = false;
+      replyAudio.length = 0;
+      const current = { socket, timestamp:0 };
+      current.disconnected = () => { void stopVoice(false); };
+      capture = current; $('mic').disabled = true;
+      try {
+        if (!window.AudioEncoder || !navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持 Opus 音频采集，请使用新版 Chrome 或 Edge');
+        const config = { codec:'opus', sampleRate:16000, numberOfChannels:1, bitrate:24000, opus:{ frameDuration:60000 } };
+        if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error('当前浏览器不支持 Opus 编码');
+        unlockAudio();
+        current.context = new AudioContext({ sampleRate:16000 });
+        if (current.context.sampleRate !== 16000) throw new Error('无法以 16kHz 采集音频');
+        await current.context.resume();
+        current.stream = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true, noiseSuppression:true }, video:false });
+        if (current.stopping || current.socket.readyState !== WebSocket.OPEN) { current.stream.getTracks().forEach(track => track.stop()); throw new Error('语音连接已断开'); }
+        await current.context.audioWorklet.addModule('capture.js');
+        if (current.socket.readyState !== WebSocket.OPEN) throw new Error('语音连接已断开');
+        current.socket.addEventListener('close', current.disconnected, { once:true });
+        current.encoder = new AudioEncoder({ output:chunk => {
+          if (current.socket.readyState !== WebSocket.OPEN || current.socket.bufferedAmount > 256 * 1024) { void stopVoice(false); return; }
+          const bytes = new Uint8Array(chunk.byteLength); chunk.copyTo(bytes); current.socket.send(bytes);
+        }, error:error => { toast(error.message); void stopVoice(false); } });
+        current.encoder.configure(config);
+        current.node = new AudioWorkletNode(current.context, 'voice-capture');
+        current.node.port.onmessage = event => {
+          if (event.data === 'silence') { void stopVoice(); return; }
+          if (event.data === 'stopped') { current.stopped?.(); return; }
+          if (current.encoder.state !== 'configured') return;
+          const frame = new AudioData({ format:'f32', sampleRate:16000, numberOfFrames:960, numberOfChannels:1, timestamp:current.timestamp, data:event.data });
+          current.timestamp += 60000; current.encoder.encode(frame); frame.close();
+        };
+        current.socket.send(JSON.stringify({ type:'listen', state:'start' })); current.started = true;
+        current.source = current.context.createMediaStreamSource(current.stream);
+        current.source.connect(current.node); current.node.connect(current.context.destination);
+        listening = true; $('mic').classList.add('recording'); $('mic').setAttribute('aria-pressed', 'true');
+        $('voice-title').textContent = '正在向灵矽发送音频'; $('voice-detail').textContent = '说完后自动结束，也可点击停止';
+      } catch (error) { toast(error.message); await stopVoice(false); }
+      finally { $('mic').disabled = false; }
+    }
+    window.addEventListener('pagehide', () => { void stopVoice(false); });
+    $('voice-title').textContent = '点击麦克风与灵矽对话';
+    $('voice-detail').textContent = '直接发送音频';
     const executionView = new URLSearchParams(location.search).get('view') === 'execution';
     document.body.classList.toggle('execution-view', executionView);
-    const taskEvents = [], sources = new Set(); let executionWindow, decoder, audioSequence = Promise.resolve(), audioTimestamp = 0, audioEnabled = false;
-    function scheduleAudio(buffer) { if (!audioEnabled || !$('speaker').checked || executionView) return; const source = playbackContext.createBufferSource(); source.buffer = buffer; source.connect(playbackContext.destination); playbackTime = Math.max(playbackTime, playbackContext.currentTime); source.start(playbackTime); playbackTime += buffer.duration; sources.add(source); source.onended = () => sources.delete(source); }
-    function unlockAudio() { if (executionView) return; playbackContext ||= new AudioContext(); playbackContext.resume().then(() => { audioEnabled = playbackContext.state === 'running'; $('response-foot').textContent = audioEnabled ? '外放已就绪' : '点击外放开关开启声音'; }).catch(() => toast('请点击外放开关开启声音')); }
-    function speakText(text) { if (!audioEnabled || !$('speaker').checked || executionView || !window.speechSynthesis) return; const speech = new SpeechSynthesisUtterance(text); speech.lang = 'zh-CN'; speechSynthesis.speak(speech); }
-    async function playAudio(data) {
+    const taskEvents = [], sources = new Set(); let executionWindow, decoder, audioSequence = Promise.resolve(), audioTimestamp = 0, audioEnabled = false, audioRate = 16000, speechFallback = !window.AudioDecoder, latestSpeech = '';
+    function stopPlayback() { sources.forEach(source => source.stop()); sources.clear(); playbackTime = 0; window.speechSynthesis?.cancel(); }
+    const playbackOwner = new BroadcastChannel('speak2code-playback');
+    playbackOwner.onmessage = () => { stopPlayback(); audioEnabled = false; $('response-foot').textContent = '外放已切换至另一页面'; };
+    const replyAudio = [];
+    window.speechSynthesis?.cancel();
+    function fallbackAudio() { speechFallback = true; stopPlayback(); $('response-foot').textContent = '灵矽音频解码失败，请使用支持 Opus 的浏览器'; }
+    function scheduleAudio(buffer) { if (speechFallback || replaying || !audioEnabled || !$('speaker').checked || executionView) return; const source = playbackContext.createBufferSource(); source.buffer = buffer; source.connect(playbackContext.destination); playbackTime = Math.max(playbackTime, playbackContext.currentTime); source.start(playbackTime); playbackTime += buffer.duration; sources.add(source); source.onended = () => sources.delete(source); }
+    function updatePlayback(state) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type:'playback', state })); }
+    function unlockAudio() { if (executionView || !$('speaker').checked) return; updatePlayback('claim'); playbackOwner.postMessage('claim'); playbackContext ||= new AudioContext(); playbackContext.resume().then(() => { audioEnabled = playbackContext.state === 'running'; $('response-foot').textContent = audioEnabled ? '外放已就绪 · 仅灵矽原声' : '点击外放开关开启声音'; }).catch(() => toast('请点击外放开关开启声音')); }
+    async function playAudio(data, remember = true) {
+      if (remember) { replyAudio.push(data); if (replyAudio.length > 2000) replyAudio.shift(); }
+      void stopVoice(false);
       if (executionView || !$('speaker').checked) return;
+      if (speechFallback) return;
       if (!audioEnabled) { $('response-foot').textContent = '点击外放开关开启声音'; return; }
       try {
         if (window.AudioDecoder) {
-          if (!decoder) { const config = { codec:'opus', sampleRate:16000, numberOfChannels:1 }; const support = await AudioDecoder.isConfigSupported(config); if (!support.supported) throw new Error('Opus unsupported'); decoder = new AudioDecoder({ output:frame => { const buffer = playbackContext.createBuffer(frame.numberOfChannels, frame.numberOfFrames, frame.sampleRate); for (let channel = 0; channel < frame.numberOfChannels; channel++) frame.copyTo(buffer.getChannelData(channel), { planeIndex:channel, format:'f32-planar' }); frame.close(); scheduleAudio(buffer); }, error:() => { $('response-foot').textContent = '语音解码失败，可重播文字'; } }); decoder.configure(config); }
+          if (!decoder) { const config = { codec:'opus', sampleRate:audioRate, numberOfChannels:1 }; const support = await AudioDecoder.isConfigSupported(config); if (!support.supported) throw new Error('Opus unsupported'); decoder = new AudioDecoder({ output:frame => { const buffer = playbackContext.createBuffer(frame.numberOfChannels, frame.numberOfFrames, frame.sampleRate); for (let channel = 0; channel < frame.numberOfChannels; channel++) frame.copyTo(buffer.getChannelData(channel), { planeIndex:channel, format:'f32-planar' }); frame.close(); scheduleAudio(buffer); }, error:fallbackAudio }); decoder.configure(config); }
           decoder.decode(new EncodedAudioChunk({ type:'key', timestamp:audioTimestamp, data })); audioTimestamp += 60000;
         } else { scheduleAudio(await playbackContext.decodeAudioData(data.slice(0))); }
-      } catch (_) { $('response-foot').textContent = '音频格式不支持，可重播文字'; }
+      } catch (_) { fallbackAudio(); }
     }
-    function sendTask() { const request = $('question').value.trim(); if (!request || !socket || socket.readyState !== WebSocket.OPEN || phase !== 'idle') return; unlockAudio(); phase = 'working'; activeTaskId = 'task-' + Date.now(); $('session-state').textContent = '任务进行中'; $('agent-description').textContent = 'Codex · 正在读取本地工作区'; setPhase('等待任务下发', 'running'); progress(0); $('send').disabled = true; socket.send(JSON.stringify({ type:'task', taskId:activeTaskId, request })); }
+    function sendTask() { const request = $('question').value.trim(); if (!request || !socket || socket.readyState !== WebSocket.OPEN || phase === 'waiting') return; unlockAudio(); phase = 'waiting'; $('session-state').textContent = '等待灵矽回复'; $('response-time').textContent = '等待回复'; $('send').disabled = true; socket.send(JSON.stringify({ type:'task', request })); }
     function handleEvent(event) {
-      if (event.type === 'lingxi_speech') { if (executionView || !event.text) return; $('response').className = ''; $('response').textContent += ($('response').textContent ? '\n' : '') + event.text; $('response-time').textContent = '已响应'; if (!window.AudioDecoder) speakText(event.text); return; }
+      if (event.type === 'playback_revoked') { stopPlayback(); audioEnabled = false; $('speaker').checked = false; decoder?.close(); decoder = null; $('response-foot').textContent = '外放已切换至另一页面'; return; }
+      if (event.type === 'lingxi_speech') { void stopVoice(false); if (replaying) { stopPlayback(); replaying = false; } }
+      if (event.type === 'lingxi_error' || (event.type === 'lingxi_connection' && event.text !== 'true')) void stopVoice(false);
+      if (event.type === 'lingxi_audio') { audioRate = Number(event.text) || 16000; decoder?.close(); decoder = null; return; }
+      if (event.type === 'lingxi_connection') { const connected = event.text === 'true'; $('session-state').textContent = connected ? '灵矽已连接' : '灵矽未连接'; if (!connected) { phase = 'idle'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); } return; }
+      if (event.type === 'lingxi_error') { phase = 'idle'; $('session-state').textContent = event.error || '灵矽连接失败'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); toast(event.error || '灵矽连接失败'); return; }
+      if (event.type === 'lingxi_speech') { if (executionView || !event.text) return; phase = 'idle'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); $('session-state').textContent = '灵矽已回复'; $('response').className = ''; $('response').textContent += ($('response').textContent ? '\n' : '') + event.text; $('response-time').textContent = '已响应'; latestSpeech = event.text; return; }
       if (!['status','thinking','git','diff','ready','pr','error'].includes(event.type)) return;
       if (!executionView) { taskEvents.push(event); if (executionWindow && !executionWindow.closed) executionWindow.postMessage({ type:'execution-event', event }, location.origin); }
       const row = document.createElement('div'); row.className = 'log-entry'; const label = document.createElement('strong'); label.textContent = [new Date().toLocaleTimeString(), event.taskId || '', event.type === 'git' || event.type === 'pr' ? 'Git' : 'Codex'].join(' · '); row.append(label, document.createTextNode(event.error || event.text || (event.type === 'diff' ? '工作区 diff 已生成' : event.type))); $('execution-log').append(row); $('execution-log').scrollTop = $('execution-log').scrollHeight;
-      if (event.type === 'status' || event.type === 'thinking' || event.type === 'git') { phase = 'working'; activeTaskId = event.taskId || activeTaskId; $('agent-description').textContent = event.text || ''; setPhase(event.type === 'git' ? 'Git 操作中' : '正在执行', 'running'); progress(1); }
+      if (event.type === 'status' || event.type === 'thinking' || event.type === 'git') { executionPhase = 'working'; activeTaskId = event.taskId || activeTaskId; $('agent-description').textContent = event.text || ''; setPhase(event.type === 'git' ? 'Git 操作中' : '正在执行', 'running'); progress(1); }
       if (event.type === 'diff') { renderCode($('new-code'), (event.diff || '无文件变更').split('\n'), 'added'); $('file-state').textContent = '工作区 diff'; $('new-branch').textContent = 'lingxi/' + event.taskId; setPhase('编码已完成', 'done'); progress(2); }
-      if (event.type === 'ready') { phase = 'ready'; $('merge').disabled = false; setPhase(event.text || '等待确认', 'done'); progress(2); }
-      if (event.type === 'pr') { phase = 'ready'; $('merge').disabled = false; const target = $('review-state'); target.textContent = event.text || 'PR 已创建'; if (event.pr?.url) { try { const url = new URL(event.pr.url); if (url.protocol === 'https:' || url.protocol === 'http:') { const link = document.createElement('a'); link.href = url.href; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = ' 打开 GitHub PR'; target.append(link); } } catch (_) {} } setPhase('等待 PR 合并', 'done'); }
-      if (event.type === 'error') { phase = 'idle'; setPhase('执行失败', 'error'); }
+      if (event.type === 'ready') { executionPhase = 'ready'; $('merge').disabled = false; setPhase(event.text || '等待确认', 'done'); progress(2); }
+      if (event.type === 'pr') { executionPhase = 'ready'; $('merge').disabled = false; const target = $('review-state'); target.textContent = event.text || 'PR 已创建'; if (event.pr?.url) { try { const url = new URL(event.pr.url); if (url.protocol === 'https:' || url.protocol === 'http:') { const link = document.createElement('a'); link.href = url.href; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = ' 打开 GitHub PR'; target.append(link); } } catch (_) {} } setPhase('等待 PR 合并', 'done'); }
+      if (event.type === 'error') { executionPhase = 'idle'; setPhase('执行失败', 'error'); }
     }
-    function connect() { const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'; socket = new WebSocket(scheme + location.host + '/ws/ui'); socket.binaryType = 'arraybuffer'; socket.onopen = () => { setConnection('MCP Server · 已连接', 'online'); $('send').disabled = !$('question').value.trim(); }; socket.onclose = () => { setConnection('MCP Server · 已断开', 'error'); $('send').disabled = true; }; socket.onerror = () => setConnection('MCP Server · 连接失败', 'error'); socket.onmessage = message => { if (typeof message.data !== 'string') { playAudio(message.data); return; } try { handleEvent(JSON.parse(message.data)); } catch (_) { toast('服务端事件格式无效'); } }; }
+    function connect() { const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'; socket = new WebSocket(scheme + location.host + '/ws/ui'); socket.binaryType = 'arraybuffer'; socket.onopen = () => { updatePlayback($('speaker').checked ? 'claim' : 'release'); phase = 'idle'; setConnection('MCP Server · 已连接', 'online'); $('send').disabled = !$('question').value.trim(); }; socket.onclose = () => { stopPlayback(); setConnection('MCP Server · 已断开，正在重连', 'error'); $('send').disabled = true; setTimeout(connect, 2000); }; socket.onerror = () => setConnection('MCP Server · 连接失败', 'error'); socket.onmessage = message => { if (typeof message.data !== 'string') { audioSequence = audioSequence.then(() => playAudio(message.data)); return; } try { handleEvent(JSON.parse(message.data)); } catch (_) { toast('服务端事件格式无效'); } }; }
     $('open-execution').onclick = () => { executionWindow = window.open('?view=execution', 'speak2code-execution', 'popup,width=1060,height=800'); if (!executionWindow) toast('请允许此站点打开执行详情窗口'); else executionWindow.focus(); };
     window.addEventListener('message', message => { if (message.origin !== location.origin) return; if (!executionView && message.source === executionWindow && message.data?.type === 'execution-ready') executionWindow.postMessage({ type:'execution-history', events:taskEvents }, location.origin); if (executionView && message.source === window.opener) { if (message.data?.type === 'execution-history') { $('execution-log').replaceChildren(); message.data.events.forEach(handleEvent); } if (message.data?.type === 'execution-event') handleEvent(message.data.event); } });
-    $('speaker').onchange = () => { if ($('speaker').checked) unlockAudio(); else { sources.forEach(source => source.stop()); sources.clear(); playbackTime = 0; decoder?.close(); decoder = null; window.speechSynthesis?.cancel(); $('response-foot').textContent = '外放已关闭'; } };
-    $('replay').onclick = () => { unlockAudio(); playbackContext.resume().then(() => { audioEnabled = playbackContext.state === 'running'; window.speechSynthesis?.cancel(); speakText($('response').textContent); }); };
+    $('speaker').onchange = () => { if ($('speaker').checked) unlockAudio(); else { updatePlayback('release'); audioEnabled = false; stopPlayback(); decoder?.close(); decoder = null; $('response-foot').textContent = '外放已关闭'; } };
+    let replaying = false;
+    $('replay').onclick = async () => {
+      if (!replyAudio.length) { toast('暂无可重播的灵矽原声'); return; }
+      void stopVoice(false); stopPlayback(); unlockAudio();
+      await playbackContext.resume(); audioEnabled = playbackContext.state === 'running';
+      decoder?.close(); decoder = null; audioTimestamp = 0; speechFallback = !window.AudioDecoder; replaying = false;
+      for (const packet of replyAudio.slice()) audioSequence = audioSequence.then(() => playAudio(packet, false));
+    };
     document.addEventListener('pointerdown', () => { if (!audioEnabled) unlockAudio(); }, { once:true });
-    document.querySelectorAll('.view-tab').forEach(tab => tab.onclick = () => { const screen = tab.id === 'screen-tab'; document.querySelectorAll('.view-tab').forEach(item => { item.classList.toggle('active', item === tab); item.setAttribute('aria-selected', String(item === tab)); }); $('workspace-panel').hidden = screen; $('screen-panel').hidden = !screen; }); $('question').oninput = () => { $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim() || phase !== 'idle'; }; $('mic').onclick = toggleVoice; $('send').onclick = sendTask; $('demo').onclick = () => { $('question').value = sample; $('question').focus(); $('question').dispatchEvent(new Event('input')); }; $('reset').onclick = () => location.reload(); $('merge').onclick = () => { if (phase !== 'ready') return; phase = 'merged'; $('merge').disabled = true; $('review-state').textContent = '已确认变更 · 等待 GitHub PR 合并'; $('session-state').textContent = '等待合并'; progress(3); toast('已确认变更，请在 GitHub PR 页面完成合并'); }; renderCode($('old-code'), originalLines); if (executionView) { document.title = '执行详情 · Codex / Git'; $('service-state').textContent = '执行详情'; if (window.opener) window.opener.postMessage({ type:'execution-ready' }, location.origin); else setConnection('请从对话窗口打开执行详情', 'error'); } else connect();
+    document.querySelectorAll('.view-tab').forEach(tab => tab.onclick = () => { const screen = tab.id === 'screen-tab'; document.querySelectorAll('.view-tab').forEach(item => { item.classList.toggle('active', item === tab); item.setAttribute('aria-selected', String(item === tab)); }); $('workspace-panel').hidden = screen; $('screen-panel').hidden = !screen; }); $('question').oninput = () => { $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim() || phase === 'waiting'; }; $('mic').onclick = toggleVoice; $('send').onclick = sendTask; $('demo').onclick = () => { $('question').value = sample; $('question').focus(); $('question').dispatchEvent(new Event('input')); }; $('reset').onclick = () => location.reload(); $('merge').onclick = () => { if (executionPhase !== 'ready') return; executionPhase = 'merged'; $('merge').disabled = true; $('review-state').textContent = '已确认变更 · 等待 GitHub PR 合并'; $('session-state').textContent = '等待合并'; progress(3); toast('已确认变更，请在 GitHub PR 页面完成合并'); }; renderCode($('old-code'), originalLines); if (executionView) { document.title = '执行详情 · Codex / Git'; $('service-state').textContent = '执行详情'; if (window.opener) window.opener.postMessage({ type:'execution-ready' }, location.origin); else setConnection('请从对话窗口打开执行详情', 'error'); } else connect();
   </script>
 </body>
 </html>

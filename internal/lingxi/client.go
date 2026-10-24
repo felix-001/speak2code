@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"speak2code/internal/mcp"
 	"sync"
@@ -24,12 +25,17 @@ type Client struct {
 	Audio       <-chan []byte
 	AudioOutput func([]byte)
 	SpeechText  func(string)
+	SenderReady func(func(string) error)
+	VoiceReady  func(func(string, []byte) error)
+	AudioRate   func(int)
 }
 
 func (c Client) Connect(ctx context.Context) error {
 	var lastErr error
 	for attempt := 0; ; attempt++ {
+		log.Printf("lingxi connect: attempt=%d", attempt+1)
 		lastErr = c.connectOnce(ctx)
+		log.Printf("lingxi disconnected: attempt=%d error=%v", attempt+1, lastErr)
 		if lastErr == nil || attempt >= c.Config.MaxReconnects {
 			return lastErr
 		}
@@ -53,6 +59,11 @@ func (c Client) connectOnce(ctx context.Context) error {
 		return fmt.Errorf("lingxi websocket: %w", err)
 	}
 	defer connection.Close()
+	log.Printf("lingxi websocket connected")
+	initialized, toolsListed := false, false
+	defer func() {
+		log.Printf("lingxi MCP session ended: initialized=%t tools_listed=%t", initialized, toolsListed)
+	}()
 	var writeMu sync.Mutex
 	writeMessage := func(messageType int, data []byte) error {
 		writeMu.Lock()
@@ -71,6 +82,7 @@ func (c Client) connectOnce(ctx context.Context) error {
 	if err := writeMessage(websocket.TextMessage, helloData); err != nil {
 		return err
 	}
+	log.Printf("lingxi hello sent: mcp=true protocol=1 audio=opus")
 	if err := connection.SetReadDeadline(time.Now().Add(c.handshakeTimeout())); err != nil {
 		return err
 	}
@@ -80,6 +92,48 @@ func (c Client) connectOnce(ctx context.Context) error {
 	}
 	if messageType != websocket.TextMessage || !validHello(data) {
 		return fmt.Errorf("lingxi hello: invalid server response")
+	}
+	var helloResponse struct {
+		SessionID   string `json:"session_id"`
+		AudioParams struct {
+			SampleRate int `json:"sample_rate"`
+		} `json:"audio_params"`
+	}
+	_ = json.Unmarshal(data, &helloResponse)
+	log.Printf("lingxi hello accepted: session_present=%t audio_rate=%d", helloResponse.SessionID != "", helloResponse.AudioParams.SampleRate)
+	if c.VoiceReady != nil {
+		c.VoiceReady(func(state string, audio []byte) error {
+			if state == "" {
+				return writeMessage(websocket.BinaryMessage, audio)
+			}
+			if state != "start" && state != "stop" {
+				return fmt.Errorf("invalid listen state: %s", state)
+			}
+			message, err := json.Marshal(map[string]string{"type": "listen", "state": state, "mode": "manual", "session_id": helloResponse.SessionID})
+			if err != nil {
+				return err
+			}
+			return writeMessage(websocket.TextMessage, message)
+		})
+		defer c.VoiceReady(nil)
+		log.Printf("lingxi voice sender ready")
+	}
+	if c.AudioRate != nil {
+		rate := helloResponse.AudioParams.SampleRate
+		if rate <= 0 {
+			rate = 16000
+		}
+		c.AudioRate(rate)
+	}
+	if c.SenderReady != nil {
+		c.SenderReady(func(text string) error {
+			message, err := json.Marshal(map[string]string{"type": "listen", "state": "detect", "text": text, "session_id": helloResponse.SessionID})
+			if err != nil {
+				return err
+			}
+			return writeMessage(websocket.TextMessage, message)
+		})
+		defer c.SenderReady(nil)
 	}
 	if err := connection.SetReadDeadline(time.Time{}); err != nil {
 		return err
@@ -132,12 +186,28 @@ func (c Client) connectOnce(ctx context.Context) error {
 		if json.Unmarshal(data, &envelope) != nil || envelope.Type != mcp.MessageType {
 			continue
 		}
+		request, decodeErr := mcp.Decode(data)
+		log.Printf("lingxi MCP received: method=%q has_id=%t decode_error=%v", request.Method, request.ID != nil, decodeErr)
 		response, err := c.Session.Handle(data)
 		if err != nil {
 			response, _ = mcp.ErrorMessage(nil, -32600, err.Error())
 		}
 		if err := writeMessage(websocket.TextMessage, response); err != nil {
+			log.Printf("lingxi MCP response failed: method=%q error=%v", request.Method, err)
 			return err
+		}
+		var responseEnvelope mcp.Envelope
+		var rpcResponse mcp.Response
+		validResponse := json.Unmarshal(response, &responseEnvelope) == nil && json.Unmarshal(responseEnvelope.Payload, &rpcResponse) == nil
+		success := validResponse && rpcResponse.Error == nil
+		log.Printf("lingxi MCP response sent: method=%q success=%t", request.Method, success)
+		if success && request.Method == "initialize" {
+			initialized = true
+			log.Printf("lingxi MCP initialized: protocol=%s", mcp.ProtocolVersion)
+		}
+		if success && request.Method == "tools/list" {
+			toolsListed = true
+			log.Printf("lingxi MCP tools advertised: tools=self.code.request initialized=%t", initialized)
 		}
 	}
 }

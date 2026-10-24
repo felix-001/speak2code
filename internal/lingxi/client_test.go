@@ -2,6 +2,7 @@ package lingxi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"speak2code/internal/mcp"
@@ -28,9 +29,33 @@ func TestConnectSendsAuthAndHello(t *testing.T) {
 			return
 		}
 		_ = connection.WriteJSON(map[string]string{"type": "hello", "transport": "websocket"})
-		data, _ := mcp.Wrap(mcp.Request{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
-		_ = connection.WriteMessage(websocket.TextMessage, data)
-		_, _, _ = connection.ReadMessage()
+		for _, method := range []string{"initialize", "tools/list"} {
+			data, _ := mcp.Wrap(mcp.Request{JSONRPC: "2.0", ID: 1, Method: method})
+			_ = connection.WriteMessage(websocket.TextMessage, data)
+			_, response, err := connection.ReadMessage()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			var envelope mcp.Envelope
+			var result struct {
+				Result struct {
+					ProtocolVersion string     `json:"protocolVersion"`
+					Tools           []mcp.Tool `json:"tools"`
+				} `json:"result"`
+				Error *mcp.Error `json:"error"`
+			}
+			if json.Unmarshal(response, &envelope) != nil || json.Unmarshal(envelope.Payload, &result) != nil || result.Error != nil {
+				t.Errorf("invalid MCP response for %s", method)
+				return
+			}
+			if method == "initialize" && result.Result.ProtocolVersion != mcp.ProtocolVersion {
+				t.Error("missing initialization protocol")
+			}
+			if method == "tools/list" && (len(result.Result.Tools) != 1 || result.Result.Tools[0].Name != "self.code.request") {
+				t.Error("missing coding tool")
+			}
+		}
 	}))
 	defer server.Close()
 	url := "ws" + server.URL[len("http"):]
@@ -43,6 +68,52 @@ func TestConnectSendsAuthAndHello(t *testing.T) {
 }
 
 func TestConnectSendsAudioFrames(t *testing.T) {
+	upstream := make(chan error, 1)
+	voiceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			upstream <- err
+			return
+		}
+		defer connection.Close()
+		_, _, _ = connection.ReadMessage()
+		_ = connection.WriteJSON(map[string]string{"type": "hello", "transport": "websocket", "session_id": "voice-session"})
+		for _, state := range []string{"start", "", "stop"} {
+			kind, data, readErr := connection.ReadMessage()
+			if readErr != nil {
+				upstream <- readErr
+				return
+			}
+			if state == "" {
+				if kind != websocket.BinaryMessage || string(data) != "opus" {
+					t.Errorf("unexpected voice audio %d %q", kind, data)
+				}
+			} else {
+				var message map[string]string
+				if json.Unmarshal(data, &message) != nil || message["state"] != state || message["session_id"] != "voice-session" || message["mode"] != "manual" {
+					t.Errorf("unexpected voice control %q", data)
+				}
+			}
+		}
+		upstream <- nil
+	}))
+	defer voiceServer.Close()
+	_ = (Client{Config: Config{URL: "ws" + voiceServer.URL[4:]}, VoiceReady: func(send func(string, []byte) error) {
+		if send == nil {
+			return
+		}
+		if send("invalid", nil) == nil {
+			t.Error("invalid state accepted")
+		}
+		for _, state := range []string{"start", "", "stop"} {
+			if err := send(state, []byte("opus")); err != nil {
+				t.Error(err)
+			}
+		}
+	}}).Connect(context.Background())
+	if err := <-upstream; err != nil {
+		t.Fatal(err)
+	}
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := upgrader.Upgrade(w, r, nil)
@@ -55,7 +126,11 @@ func TestConnectSendsAudioFrames(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		_ = connection.WriteJSON(map[string]string{"type": "hello", "transport": "websocket"})
+		_ = connection.WriteJSON(map[string]string{"type": "hello", "transport": "websocket", "session_id": "session-test"})
+		var request map[string]string
+		if err := connection.ReadJSON(&request); err != nil || request["type"] != "listen" || request["state"] != "detect" || request["text"] != "hello" || request["session_id"] != "session-test" {
+			t.Errorf("unexpected text request: %v %v", request, err)
+		}
 		messageType, data, err := connection.ReadMessage()
 		if err != nil || messageType != websocket.BinaryMessage || string(data) != "opus-frame" {
 			t.Errorf("unexpected audio frame: type=%d data=%q err=%v", messageType, data, err)
@@ -68,7 +143,13 @@ func TestConnectSendsAudioFrames(t *testing.T) {
 	close(audio)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, Audio: audio}).Connect(ctx)
+	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, Audio: audio, SenderReady: func(sender func(string) error) {
+		if sender != nil {
+			if err := sender("hello"); err != nil {
+				t.Error(err)
+			}
+		}
+	}}).Connect(ctx)
 	if err == nil {
 		t.Fatal("expected test server to close connection")
 	}
@@ -140,7 +221,11 @@ func TestConnectIgnoresBinaryAndNonMCPMessages(t *testing.T) {
 	url := "ws" + server.URL[len("http"):]
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}}).Connect(ctx); err == nil {
+	if err := (Client{Config: Config{URL: url}, AudioRate: func(rate int) {
+		if rate != 16000 {
+			t.Errorf("unexpected rate: %d", rate)
+		}
+	}, Session: mcp.Session{ServerName: "test"}}).Connect(ctx); err == nil {
 		t.Fatal("expected server close error")
 	}
 }

@@ -29,8 +29,15 @@ func TestHealthAndStaticHandlers(t *testing.T) {
 	}
 }
 
-func TestUIWebSocketStartsTaskAndBroadcastsEvents(t *testing.T) {
+func TestUIWebSocketSendsTextToLingxi(t *testing.T) {
 	application := New(task.NewService(task.MockRunner{Diff: "diff"}, nil, t.TempDir()), t.TempDir())
+	application.SetTextSender(func(text string) error {
+		if text != "change" {
+			t.Errorf("unexpected request: %q", text)
+		}
+		application.BroadcastSpeech("灵矽回复")
+		return nil
+	})
 	httpServer := httptest.NewServer(application.Handler())
 	defer httpServer.Close()
 	url := "ws" + httpServer.URL[len("http"):] + "/ws/ui"
@@ -39,12 +46,15 @@ func TestUIWebSocketStartsTaskAndBroadcastsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
+	var initial task.Event
+	if err := connection.ReadJSON(&initial); err != nil || initial.Type != "lingxi_connection" || initial.Text != "true" {
+		t.Fatalf("unexpected connection: %+v %v", initial, err)
+	}
 	if err := connection.WriteJSON(map[string]string{"type": "task", "taskId": "ui-task", "request": "change"}); err != nil {
 		t.Fatal(err)
 	}
 	connection.SetReadDeadline(time.Now().Add(time.Second))
-	seenReady := false
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 1; i++ {
 		_, data, readErr := connection.ReadMessage()
 		if readErr != nil {
 			t.Fatal(readErr)
@@ -53,20 +63,60 @@ func TestUIWebSocketStartsTaskAndBroadcastsEvents(t *testing.T) {
 		if err := json.Unmarshal(data, &event); err != nil {
 			t.Fatal(err)
 		}
-		if event.TaskID != "ui-task" {
-			t.Fatalf("unexpected task id: %+v", event)
+		if event.Type != "lingxi_speech" || event.Text != "灵矽回复" {
+			t.Fatalf("unexpected response: %+v", event)
 		}
-		if event.Type == "ready" {
-			seenReady = true
-			break
-		}
-	}
-	if !seenReady {
-		t.Fatal("task did not reach ready state")
 	}
 }
 
-func TestUIWebSocketUsesDefaultTaskID(t *testing.T) {
+func TestUIVoiceOrdering(t *testing.T) {
+	application := New(task.NewService(task.MockRunner{}, nil, t.TempDir()), t.TempDir())
+	if application.sendVoice("start", nil) == nil {
+		t.Fatal("disconnected voice accepted")
+	}
+	received := make(chan string, 4)
+	application.SetVoiceSender(func(state string, audio []byte) error {
+		if state == "" {
+			state = string(audio)
+		}
+		received <- state
+		return nil
+	})
+	httpServer := httptest.NewServer(application.Handler())
+	defer httpServer.Close()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+httpServer.URL[4:]+"/ws/ui", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_, _, _ = connection.ReadMessage()
+	_ = connection.WriteJSON(map[string]string{"type": "listen", "state": "start"})
+	_ = connection.WriteMessage(websocket.BinaryMessage, []byte("opus"))
+	_ = connection.WriteJSON(map[string]string{"type": "listen", "state": "stop"})
+	for _, expected := range []string{"start", "opus", "stop"} {
+		select {
+		case actual := <-received:
+			if actual != expected {
+				t.Fatalf("got %q want %q", actual, expected)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("voice forwarding timed out")
+		}
+	}
+	_ = connection.WriteJSON(map[string]string{"type": "listen", "state": "start"})
+	<-received
+	_ = connection.Close()
+	select {
+	case actual := <-received:
+		if actual != "stop" {
+			t.Fatal(actual)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("disconnect did not stop listening")
+	}
+}
+
+func TestUIWebSocketReportsDisconnectedLingxi(t *testing.T) {
 	application := New(task.NewService(task.MockRunner{Diff: ""}, nil, t.TempDir()), t.TempDir())
 	httpServer := httptest.NewServer(application.Handler())
 	defer httpServer.Close()
@@ -76,6 +126,10 @@ func TestUIWebSocketUsesDefaultTaskID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
+	var initial task.Event
+	if err := connection.ReadJSON(&initial); err != nil || initial.Text != "false" {
+		t.Fatalf("unexpected connection: %+v %v", initial, err)
+	}
 	if err := connection.WriteJSON(map[string]string{"type": "task", "request": "change"}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +139,29 @@ func TestUIWebSocketUsesDefaultTaskID(t *testing.T) {
 		t.Fatal(err)
 	}
 	var event task.Event
-	if err := json.Unmarshal(data, &event); err != nil || event.TaskID != "task-1" {
+	if err := json.Unmarshal(data, &event); err != nil || event.Type != "lingxi_error" || event.Error == "" {
 		t.Fatalf("unexpected default task event: %+v %v", event, err)
 	}
+}
+
+func TestSendTextValidation(t *testing.T) {
+	application := New(task.NewService(task.MockRunner{}, nil, t.TempDir()), t.TempDir())
+	if application.sendText(" ") == nil {
+		t.Fatal("expected empty request error")
+	}
+	application.SetTextSender(func(string) error { return fmt.Errorf("send failed") })
+	if application.sendText("hello") == nil {
+		t.Fatal("expected send error")
+	}
+	application.SetTextSender(nil)
+	if application.sendText("hello") == nil {
+		t.Fatal("expected disconnected error")
+	}
+}
+
+func TestMCPTaskEntry(t *testing.T) {
+	application := New(task.NewService(task.MockRunner{}, nil, t.TempDir()), t.TempDir())
+	application.LingxiSession().Call("", "")
 }
 
 func TestUIWebSocketForwardsBinaryAudio(t *testing.T) {
@@ -121,6 +195,7 @@ func TestUIWebSocketForwardsBinaryAudio(t *testing.T) {
 
 func TestBroadcastAudioSendsBinaryFrameToUI(t *testing.T) {
 	application := New(task.NewService(task.MockRunner{Diff: ""}, nil, t.TempDir()), t.TempDir())
+	application.BroadcastAudioRate(24000)
 	httpServer := httptest.NewServer(application.Handler())
 	defer httpServer.Close()
 	url := "ws" + httpServer.URL[len("http"):] + "/ws/ui"
@@ -129,6 +204,13 @@ func TestBroadcastAudioSendsBinaryFrameToUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
+	var initial task.Event
+	if err := connection.ReadJSON(&initial); err != nil || initial.Type != "lingxi_connection" {
+		t.Fatalf("unexpected connection: %+v %v", initial, err)
+	}
+	if err := connection.ReadJSON(&initial); err != nil || initial.Type != "lingxi_audio" || initial.Text != "24000" {
+		t.Fatalf("unexpected audio rate: %+v %v", initial, err)
+	}
 	frame := []byte("speech")
 	application.BroadcastSpeech("灵矽语音文字")
 	connection.SetReadDeadline(time.Now().Add(time.Second))
@@ -141,6 +223,56 @@ func TestBroadcastAudioSendsBinaryFrameToUI(t *testing.T) {
 	messageType, data, err := connection.ReadMessage()
 	if err != nil || messageType != websocket.BinaryMessage || string(data) != string(frame) {
 		t.Fatalf("unexpected audio broadcast: type=%d data=%q err=%v", messageType, data, err)
+	}
+}
+
+func TestPlaybackHasSingleRecipient(t *testing.T) {
+	application := New(task.NewService(task.MockRunner{}, nil, t.TempDir()), t.TempDir())
+	httpServer := httptest.NewServer(application.Handler())
+	defer httpServer.Close()
+	connect := func() *websocket.Conn {
+		connection, _, err := websocket.DefaultDialer.Dial("ws"+httpServer.URL[4:]+"/ws/ui", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = connection.Close() })
+		_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+		if _, _, err := connection.ReadMessage(); err != nil {
+			t.Fatal(err)
+		}
+		return connection
+	}
+	first := connect()
+	second := connect()
+	var revoked task.Event
+	if err := first.ReadJSON(&revoked); err != nil || revoked.Type != "playback_revoked" {
+		t.Fatalf("missing revocation: %+v %v", revoked, err)
+	}
+	application.BroadcastAudio([]byte("second only"))
+	if kind, data, err := second.ReadMessage(); err != nil || kind != websocket.BinaryMessage || string(data) != "second only" {
+		t.Fatalf("unexpected audio: %d %q %v", kind, data, err)
+	}
+	_ = first.WriteJSON(map[string]string{"type": "playback", "state": "claim"})
+	if err := second.ReadJSON(&revoked); err != nil || revoked.Type != "playback_revoked" {
+		t.Fatal("claim did not revoke previous owner", err)
+	}
+	application.BroadcastAudio([]byte("first only"))
+	if kind, data, err := first.ReadMessage(); err != nil || kind != websocket.BinaryMessage || string(data) != "first only" {
+		t.Fatalf("old audio leaked or claim failed: %d %q %v", kind, data, err)
+	}
+	_ = first.WriteJSON(map[string]string{"type": "playback", "state": "release"})
+	_ = first.WriteJSON(map[string]string{"type": "task", "request": "barrier"})
+	var barrier task.Event
+	if err := first.ReadJSON(&barrier); err != nil {
+		t.Fatal(err)
+	}
+	application.BroadcastAudio([]byte("nobody"))
+	application.BroadcastSpeech("barrier")
+	if kind, _, err := first.ReadMessage(); err != nil || kind != websocket.TextMessage {
+		t.Fatal("released owner received audio", err)
+	}
+	if kind, _, err := second.ReadMessage(); err != nil || kind != websocket.TextMessage {
+		t.Fatal("non-owner received audio", err)
 	}
 }
 
