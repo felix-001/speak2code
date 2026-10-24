@@ -16,7 +16,7 @@
 </head>
 <body>
   <main class="shell">
-    <header class="topbar"><div class="brand"><span class="brandmark"><i data-lucide="audio-lines"></i></span>ai语音编程助手<small>VOICE TO CODE</small></div><div class="top-meta"><span>交互原型 · 未连接服务</span><button class="icon-btn" id="reset" title="重置任务" aria-label="重置任务"><i data-lucide="rotate-ccw"></i></button></div></header>
+    <header class="topbar"><div class="brand"><span class="brandmark"><i data-lucide="audio-lines"></i></span>ai语音编程助手<small>VOICE TO CODE</small></div><div class="top-meta"><span id="service-state">正在连接服务</span><button class="icon-btn" id="reset" title="重置任务" aria-label="重置任务"><i data-lucide="rotate-ccw"></i></button></div></header>
     <section class="intro"><div><div class="eyebrow">YOUR VOICE. YOUR WORKSPACE.</div><h1>把想法，写进代码。</h1><p>ai语音编程助手工作台 / 新任务</p></div><button class="demo" id="demo"><i data-lucide="play"></i>演示任务</button></section>
     <div class="connection"><span class="dot"></span><span>灵矽</span><span class="arrow">/</span><span>MCP</span><span class="arrow">/</span><span>本地端侧</span><span class="workspace-label"><i data-lucide="folder-git-2"></i> studio-web</span></div>
     <div class="task-settings" aria-label="任务设置"><label class="setting-field" for="model-select">模型<select id="model-select" name="model"><option value="lingxi">灵矽</option></select></label><label class="setting-field" for="mode-select">模式<select id="mode-select" name="mode"><option value="fast">极速</option><option value="task">任务</option></select></label></div>
@@ -220,6 +220,36 @@
     byId('reset').onclick = () => { if (starting) { toast('请先完成麦克风授权'); return; } if (recording) stopRecording(); timers.forEach(clearTimeout); timers = []; location.reload(); };
     renderCode(byId('old-code'),original); icons(); startWakeListening();
     window.addEventListener('pagehide', () => { wakeEnabled = false; clearTimeout(wakeTimer); if (wakeRecognition) wakeRecognition.abort(); if (recognition) recognition.abort(); if (stream) stream.getTracks().forEach(track => track.stop()); });
+
+    // The static file remains usable by itself; when served by the Go server, use its live event stream.
+    const uiSocketURL = (location.protocol === 'file:') ? '' : (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/ui';
+    let uiSocket, activeTaskId = '', latestPR = null;
+    function connectUI() {
+      if (!uiSocketURL) { byId('service-state').textContent = '交互原型 · 未连接服务'; return; }
+      uiSocket = new WebSocket(uiSocketURL);
+      uiSocket.onopen = () => { byId('service-state').textContent = 'MCP Server · 已连接'; };
+      uiSocket.onclose = () => { byId('service-state').textContent = 'MCP Server · 已断开'; };
+      uiSocket.onerror = () => { byId('service-state').textContent = 'MCP Server · 连接失败'; };
+      uiSocket.onmessage = event => { try { handleServerEvent(JSON.parse(event.data)); } catch (_) { toast('服务端事件格式无效'); } };
+    }
+    function handleServerEvent(event) {
+      if (event.taskId && activeTaskId && event.taskId !== activeTaskId) return;
+      if (event.type === 'status') { byId('response').className = ''; byId('response').textContent = event.text || ''; byId('session-state').textContent = '任务进行中'; setAgentStatus(event.text || '处理中', 'running'); progress(1); }
+      if (event.type === 'thinking') { byId('agent-description').textContent = 'Codex · ' + event.text; byId('response').textContent = event.text; setAgentStatus('正在思考', 'running'); }
+      if (event.type === 'diff') { phase = 'ready'; setAgentStatus('编码已完成', 'done'); byId('agent-description').textContent = 'Codex · 已生成工作区 diff'; byId('session-state').textContent = '等待确认变更'; const lines = (event.diff || '').split('\n'); renderCode(byId('new-code'), lines.length ? lines : ['无文件变更'], 'added'); byId('new-branch').textContent = 'lingxi/' + activeTaskId; byId('file-state').textContent = '工作区 diff'; byId('merge').disabled = false; byId('response').textContent = 'Codex 已完成编码，请检查下方 diff 后确认。'; progress(2); updateControls(); }
+      if (event.type === 'pr') { latestPR = event.pr; byId('response').textContent = event.text || 'Pull Request 已创建，点击 Merge 打开 GitHub 页面。'; byId('review-state').innerHTML = '<i data-lucide="git-pull-request"></i>PR #' + event.pr.number + ' · 等待合并'; icons(); }
+      if (event.type === 'error') { phase = 'idle'; setAgentStatus('执行失败', 'error'); byId('response').textContent = event.error || '任务执行失败'; updateControls(); toast(event.error || '任务执行失败'); }
+    }
+    const localSendTask = sendTask;
+    sendTask = function sendLiveTask() {
+      if (!uiSocket || uiSocket.readyState !== WebSocket.OPEN) { localSendTask(); return; }
+      if (!question.value.trim() || phase !== 'idle') return;
+      activeTaskId = 'task-' + Date.now(); phase = 'working'; updateControls(); progress(0); byId('session-state').textContent = '任务已发送'; byId('question-time').textContent = new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); byId('response').className = ''; byId('response').textContent = '已发送给 MCP Server，等待 Codex Agent…'; byId('response-time').textContent = '实时'; uiSocket.send(JSON.stringify({type:'task', taskId:activeTaskId, request:question.value.trim()}));
+    };
+    byId('send').onclick = sendTask;
+    byId('demo').onclick = () => { question.value = sample; updateControls(); sendTask(); };
+    byId('merge').onclick = () => { if (phase !== 'ready') return; phase = 'merged'; byId('merge').disabled = true; byId('merge').innerHTML = '<i data-lucide="check"></i><span>打开 PR</span>'; byId('session-state').textContent = '等待 GitHub 合并'; byId('review-state').innerHTML = '<i data-lucide="git-pull-request"></i>已生成 Pull Request'; progress(2); icons(); if (latestPR && latestPR.url) window.open(latestPR.url, '_blank', 'noopener'); else toast('PR 尚未返回，请稍候再试'); };
+    connectUI();
   </script>
 </body>
 </html>

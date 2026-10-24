@@ -1,0 +1,21 @@
+server:
+  address: ":18080"
+  ui_path: frontend
+  workspace: . # 必须是 Git 仓库目录
+
+lingxi:
+  url: "wss://xrobo-io.qiniuapi.com/v1/ws/"
+  token: ""
+  device_id: ""
+  client_id: ""
+  handshake_timeout: 10s
+  reconnect_delay: 2s
+  max_reconnects: 3
+
+codex:
+  command: codex
+
+github:
+  token: ""
+  owner: ""
+  repo: ""

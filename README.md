@@ -4,11 +4,90 @@
 
 MCP Server 向灵矽注册编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。用户在网页上以语音或文字与灵矽交互；灵矽理解和编排需求，调用 MCP Server 的能力将任务交给端侧 Codex / Claude。端侧 Agent 在本地工作区中读取代码、修改文件并运行测试，执行状态和代码差异经灵矽返回网页供用户确认。
 
-> 当前仓库是概念验证阶段：已有可交互的前端演示和系统架构设计，尚未接入真实的灵矽服务、MCP Server 或本地编码 Agent。
+> 当前仓库提供一个可运行的 Go MCP Server MVP。灵矽、Codex CLI 和 GitHub 通过 `config.yaml` 配置；未配置真实凭据时仍可启动页面进行本地联调。
 
-## 体验原型
+## 运行 MCP Server
 
-原型是一个无需构建的静态 HTML 页面，可以直接在浏览器中打开：
+### 1. 准备环境
+
+需要安装：
+
+- Go 1.25 或更高版本。
+- Codex CLI，并确保 `codex` 命令可以在终端中执行。仅启动网页和 MCP Server 时可以暂不安装 Codex；真正执行编码任务时必须安装。
+- 如果需要创建 Pull Request，需要可访问目标仓库的 GitHub Token。
+
+在项目根目录执行依赖下载和测试：
+
+```bash
+go mod download
+go test ./...
+```
+
+### 2. 配置服务
+
+项目根目录已经提供 [config.yaml](config.yaml) 示例。服务端默认使用 `frontend` 目录中的实际工作台页面；`prototypes` 目录只用于设计和交互演示，不会被 MCP Server 作为生产页面托管。直接本地联调时可以保留默认配置；需要连接灵矽、调用 Codex 或创建 GitHub PR 时，填写对应字段：
+
+```yaml
+server:
+    address: ":18080"
+    ui_path: frontend
+    workspace: . # 必须是 Git 仓库目录
+lingxi:
+    url: "wss://xrobo-io.qiniuapi.com/v1/ws/"
+    token: "灵矽分配的设备令牌"
+    device_id: "设备 ID"
+    client_id: "客户端 ID"
+codex:
+    command: codex
+github:
+    token: "GitHub Token"
+    owner: "仓库所有者"
+    repo: "仓库名称"
+```
+
+`lingxi.url` 为空时，服务仍会启动 Web Server，但不会主动连接灵矽。GitHub 的 `token`、`owner` 和 `repo` 必须同时填写，服务才会启用提交、push 和创建 PR 流程。配置文件中的 `workspace` 是 Codex 读写代码和执行 Git 操作的本地工作区，必须指向一个已经初始化的 Git 仓库，例如 `/Users/rigensen/workspace/aicoding`。服务启动时会提前校验该目录；不能填写仓库的父目录 `/Users/rigensen/workspace`。
+
+### 3. 启动服务
+
+Codex 使用 `--sandbox workspace-write` 在配置的工作区内写入代码，不关闭沙箱。收集 diff 前使用 `git add -N -- .` 标记新文件，确保新建文件也能显示在工作台中；该操作不提交代码，但会改变 Git 索引的 intent-to-add 状态。
+
+使用默认配置文件启动：
+
+```bash
+go run ./cmd/speak2code ./config.yaml
+```
+
+也可以省略配置文件参数，程序会读取当前目录下的 `config.yaml`：
+
+```bash
+go run ./cmd/speak2code
+```
+
+如果使用其他配置文件：
+
+```bash
+go run ./cmd/speak2code /path/to/my-config.yaml
+```
+
+启动成功后，默认地址为 `http://localhost:18080`。可以用以下命令检查服务：
+
+```bash
+curl http://localhost:18080/healthz
+```
+
+返回 `ok` 表示 HTTP 服务已启动。浏览器打开 `http://localhost:18080` 即可访问前端页面；MCP Server 提供的浏览器通道为 `/ws/ui`，灵矽 MCP 通道为 `/ws/lingxi`。
+
+### 4. 连接灵矽并执行任务
+
+填写 `lingxi.url`、`token`、`device_id` 和 `client_id` 后重启服务。MCP Server 会主动通过 WSS 连接灵矽，发送客户端 `hello`，等待并校验服务端 `hello`，然后注册 `self.code.request` 工具；连接断开时按照 `handshake_timeout`、`reconnect_delay` 和 `max_reconnects` 尝试重连。
+
+填写 Codex 和 GitHub 配置后，任务流程为：灵矽通过 MCP `tools/call` 发送编码需求，服务端调用 `codex exec --json`，逐行读取 JSON 输出并把事件实时推送到浏览器；任务完成后读取工作区 diff，创建 `lingxi/<task-id>` 分支并提交，随后 push 到远端并调用 GitHub API 创建 PR。空白编码需求会被忽略，不会启动 Codex，也不会执行 `git diff`。
+
+如果只想验证页面，不需要填写灵矽、Codex 或 GitHub 凭据，直接启动服务即可；页面中的演示任务使用前端模拟数据，不会修改真实仓库。
+
+## 设计原型
+
+`prototypes/index.html` 是独立的设计原型，不属于 MCP Server 的实际运行页面，可以直接在浏览器中打开：
 
 ```bash
 open prototypes/index.html
@@ -22,7 +101,7 @@ open prototypes/index.html
 2. 观察灵矽解析需求、端侧 Agent 编码和验证状态的模拟进度。
 3. 对比“原始代码”和“修改后”代码中的差异。
 4. 点击 `Merge`，查看合并完成状态。
-5. 点击麦克风按钮，可以体验浏览器录音和语音识别；浏览器需要授予麦克风权限。
+5. 点击麦克风按钮，可以体验浏览器录音和语音识别；浏览器需要授予麦克风权限。录音二进制块通过 `/ws/ui` 转发到灵矽，灵矽返回的二进制音频也会经同一通道送回浏览器播放。
 
 演示任务会模拟给提交按钮增加 `loading` 状态、提交时禁用按钮并显示“提交中…”。整个过程只修改页面内存中的状态，不会修改真实仓库文件。
 
@@ -80,8 +159,11 @@ flowchart LR
 │   ├── design/
 │   │   └── architecture.md   # 系统角色与数据流设计
 │   └── drafts/                # 设计草稿，当前为空
+├── cmd/speak2code/        # Go 服务入口
+├── internal/              # 灵矽 MCP、任务、Codex、GitHub 和 Web 服务
 ├── prototypes/
-│   └── index.html         # 可直接打开的交互原型
+│   └── index.html         # Web Server 托管的前端页面
+├── go.mod
 └── README.md
 ```
 
@@ -90,19 +172,20 @@ flowchart LR
 ### 已有能力
 
 - 文字需求输入和演示任务填充。
-- 浏览器录音、录音回放，以及浏览器原生语音识别（具体支持取决于浏览器）。
+- 浏览器录音、浏览器原生语音识别，以及灵矽下行语音播放（具体支持取决于浏览器）。
 - Codex / Claude 的端侧 Agent 选择交互。
 - 任务接收、编码、验证、等待合并、已合并的状态时间线。
 - 原始代码与修改后代码的差异展示。
 - 重置任务、合并确认和基础键盘可访问性支持。
 
-### 尚未实现
+### 当前限制
 
-- 灵矽后端连接和真实会话管理。
-- MCP Server 的能力注册、网页托管、页面与灵矽的交互、任务协议、鉴权和断线重试。
-- Codex / Claude 的真实调用，以及本地工作区权限控制。
-- 真实文件变更、补丁审查、测试执行和 Git 分支 / 合并操作。
-- 任务持久化、历史记录、多人协作和生产环境部署。
+- 灵矽连接需要平台分配的设备令牌、设备 ID 和客户端 ID；当前没有自动 OTA 地址发现，但支持按配置参数有限重连。
+- Codex 适配器当前调用本机 `codex exec --json` 命令，并解析其逐行 JSON 输出。项目不使用不存在的官方 Go Agents SDK，也不将 Codex CLI 描述成 Agents API。
+- GitHub 流程创建分支、提交和 PR，但 Merge 按产品要求只打开 GitHub PR 页面，不自动合并。
+- 灵矽连接会验证服务端 hello 响应，并按 YAML 中的重连参数处理断线。
+- 当前浏览器使用 `MediaRecorder` 采集 Opus 音频块；灵矽回传的二进制音频由浏览器 `AudioContext` 排队播放。若目标协议要求裸 Opus 60ms 帧，仍需使用真实凭据做端到端确认并按文档调整编码器。
+- 工作区授权、任务持久化、多人会话隔离和生产部署仍需继续加固。
 
 页面顶部的“未连接服务”、响应中的“模拟响应”和验证结果中的“非真实测试”是当前原型状态的明确提示。
 
@@ -110,13 +193,17 @@ flowchart LR
 
 建议按以下顺序推进，以便先验证主链路，再逐步增加安全边界：
 
-1. 固化任务协议：定义需求、工作区、Agent、进度事件、补丁和验证结果的数据结构。
-2. 实现 MCP Server 的能力注册、网页访问和任务通道：先支持单任务、单工作区和可追踪的任务 ID。
-3. 接入端侧执行器：将 Agent 操作限制在明确授权的工作区，并记录命令、文件变更和退出状态。
-4. 替换原型模拟状态：使用服务端事件流或 WebSocket 推送真实进度和差异。
-5. 增加确认与回滚：合并前展示补丁和测试结果，失败时保留日志并支持恢复。
-6. 补充端到端测试：覆盖语音输入、任务取消、断线重连、权限拒绝和合并失败等路径。
+1. 将工作区授权、命令审计和任务取消固化到执行器边界。
+2. 增加会话隔离、权限校验和任务持久化。
+3. 实现由 MCP Server 负责的真实画面采集、接收端发现和 AirPlay 等投屏协议。
+4. 补充端到端测试：覆盖语音输入、断线重连、权限拒绝、Codex 失败和合并失败等路径。
 
 ## 开发约定
 
-当前没有包管理器、构建工具或自动化测试配置。修改原型后，可直接刷新浏览器验证；涉及真实服务接入时，再根据最终技术选型补充前后端工程化配置和 CI。
+运行测试和覆盖率：
+
+```bash
+go test ./...
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
