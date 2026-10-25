@@ -95,6 +95,10 @@ open prototypes/index.html
 
 也可以在 VS Code 中打开 `prototypes/index.html`，使用浏览器预览扩展运行。
 
+### 演示视频
+
+[下载并观看演示视频](演示.mp4)
+
 ### 演示流程
 
 1. 点击“演示任务”，自动填入一条示例需求。
