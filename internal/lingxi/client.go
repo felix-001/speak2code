@@ -25,6 +25,7 @@ type Client struct {
 	Audio       <-chan []byte
 	AudioOutput func([]byte)
 	SpeechText  func(string)
+	InputText   func(string)
 	SenderReady func(func(string) error)
 	VoiceReady  func(func(string, []byte) error)
 	AudioRate   func(int)
@@ -36,7 +37,7 @@ func (c Client) Connect(ctx context.Context) error {
 		log.Printf("lingxi connect: attempt=%d", attempt+1)
 		lastErr = c.connectOnce(ctx)
 		log.Printf("lingxi disconnected: attempt=%d error=%v", attempt+1, lastErr)
-		if lastErr == nil || attempt >= c.Config.MaxReconnects {
+		if lastErr == nil || (c.Config.MaxReconnects >= 0 && attempt >= c.Config.MaxReconnects) {
 			return lastErr
 		}
 		select {
@@ -181,6 +182,9 @@ func (c Client) connectOnce(ctx context.Context) error {
 		}
 		if json.Unmarshal(data, &speech) == nil && speech.Type == "tts" && speech.State == "sentence_start" && speech.Text != "" && c.SpeechText != nil {
 			c.SpeechText(speech.Text)
+		}
+		if speech.Type == "stt" && speech.Text != "" && c.InputText != nil {
+			c.InputText(speech.Text)
 		}
 		var envelope mcp.Envelope
 		if json.Unmarshal(data, &envelope) != nil || envelope.Type != mcp.MessageType {

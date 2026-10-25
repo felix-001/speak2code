@@ -173,10 +173,14 @@ func TestConnectForwardsAudioOutput(t *testing.T) {
 	defer server.Close()
 	output := make(chan []byte, 1)
 	var speech []string
+	var input []string
 	url := "ws" + server.URL[len("http"):]
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, AudioOutput: func(data []byte) { output <- data }, SpeechText: func(text string) { speech = append(speech, text) }}).Connect(ctx)
+	err := (Client{Config: Config{URL: url}, Session: mcp.Session{ServerName: "test"}, AudioOutput: func(data []byte) { output <- data }, SpeechText: func(text string) { speech = append(speech, text) }, InputText: func(text string) { input = append(input, text) }}).Connect(ctx)
+	if len(input) != 1 || input[0] != "用户输入" {
+		t.Fatalf("unexpected input text: %v", input)
+	}
 	if len(speech) != 1 || speech[0] != "灵矽回复" {
 		t.Fatalf("unexpected speech text: %v", speech)
 	}
@@ -328,6 +332,24 @@ func TestConnectRetriesAfterInvalidHello(t *testing.T) {
 	err := (Client{Config: Config{URL: url, ReconnectDelay: time.Millisecond, MaxReconnects: 1}}).Connect(ctx)
 	if err == nil || attempts != 2 {
 		t.Fatalf("expected reconnect failure after second close, err=%v attempts=%d", err, attempts)
+	}
+}
+
+func TestConnectKeepsRetryingUntilCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 3 {
+			cancel()
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	err := (Client{Config: Config{URL: "ws" + server.URL[len("http"):], ReconnectDelay: time.Millisecond, MaxReconnects: -1}}).Connect(ctx)
+	if err != context.Canceled || attempts != 3 {
+		t.Fatalf("expected retries until cancellation, err=%v attempts=%d", err, attempts)
 	}
 }
 

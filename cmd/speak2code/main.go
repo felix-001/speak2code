@@ -130,6 +130,7 @@ func newApplication(cfg config.Config) *server.Server {
 		}
 	})
 	if cfg.Lingxi.URL != "" {
+		cfg.Lingxi.MaxReconnects = -1
 		go connectLingxiWithAudio(cfg, application, audio)
 	}
 	return application
@@ -142,6 +143,7 @@ func connectLingxi(cfg config.Config, application *server.Server) {
 func connectLingxiWithAudio(cfg config.Config, application *server.Server, audio <-chan []byte) {
 	client := lingxi.Client{Config: lingxi.Config{URL: cfg.Lingxi.URL, Token: cfg.Lingxi.Token, DeviceID: cfg.Lingxi.DeviceID, ClientID: cfg.Lingxi.ClientID, HandshakeTimeout: cfg.Lingxi.HandshakeTimeout, ReconnectDelay: cfg.Lingxi.ReconnectDelay, MaxReconnects: cfg.Lingxi.MaxReconnects}, Session: application.LingxiSession(), AudioOutput: application.BroadcastAudio}
 	client.Audio = audio
+	client.InputText = application.BroadcastInput
 	client.SpeechText = application.BroadcastSpeech
 	client.SenderReady = application.SetTextSender
 	client.VoiceReady = application.SetVoiceSender

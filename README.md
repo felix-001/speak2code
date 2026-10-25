@@ -79,7 +79,7 @@ curl http://localhost:18080/healthz
 
 ### 4. 连接灵矽并执行任务
 
-填写 `lingxi.url`、`token`、`device_id` 和 `client_id` 后重启服务。MCP Server 会主动通过 WSS 连接灵矽，发送客户端 `hello`，等待并校验服务端 `hello`，然后注册 `self.code.request` 工具；连接断开时按照 `handshake_timeout`、`reconnect_delay` 和 `max_reconnects` 尝试重连。
+填写 `lingxi.url`、`token`、`device_id` 和 `client_id` 后重启服务。MCP Server 会主动通过 WSS 连接灵矽，发送客户端 `hello`，等待并校验服务端 `hello`，然后注册 `self.code.request` 工具；常驻服务按照 `handshake_timeout` 和 `reconnect_delay` 持续重连，不受累计 `max_reconnects` 次数限制。
 
 填写 Codex 和 GitHub 配置后，任务流程为：灵矽通过 MCP `tools/call` 发送编码需求，服务端调用 `codex exec --json`，逐行读取 JSON 输出并把事件实时推送到浏览器；任务完成后读取工作区 diff，创建 `lingxi/<task-id>` 分支并提交，随后 push 到远端并调用 GitHub API 创建 PR。空白编码需求会被忽略，不会启动 Codex，也不会执行 `git diff`。
 
@@ -152,7 +152,9 @@ flowchart LR
 
 完整架构说明见 [docs/design/architecture.md](docs/design/architecture.md)。
 
-工作台点击“执行详情”打开独立窗口，补齐当前对话页面已收到的执行记录；对话页面关闭或刷新后不保留历史。执行窗口不播放语音。主窗口默认启用外放，浏览器可能要求先点击页面或外放开关；声音使用当前设备的默认输出设备。仅播放和重播灵矽原始语音，不调用系统文字朗读；不支持 WebCodecs Opus 或解码失败时显示错误。MCP Server 只向一个对话连接发送音频，新页面连接或开启外放时移交归属，并通知旧页面停止已排队的音源；关闭外放释放归属，不自动恢复其他页面。同源页面另通过 BroadcastChannel 停止本地播放。外放受浏览器权限和设备输出设置限制。
+工作台点击“执行详情”打开独立窗口，补齐当前对话页面已收到的执行记录；对话页面关闭或刷新后不保留历史。执行窗口不播放语音。主窗口默认外放，不提供外放复选框；浏览器可能要求先点击页面，声音使用当前设备的默认输出设备。仅播放和重播灵矽原始语音，不调用系统文字朗读；不支持 WebCodecs Opus 或解码失败时显示错误。MCP Server 只向一个对话连接发送音频，新页面连接或请求播放时移交归属，并通知旧页面停止已排队的音源。同源页面另通过 BroadcastChannel 停止本地播放。外放受浏览器权限和设备输出设置限制。
+
+灵矽返回的 `stt` 立即更新“我的需求”，仅用于显示，不再次作为文字发送；更新频率由灵矽决定，不保证逐字返回。连接断开时禁用麦克风，恢复后自动启用。实际工作台已移除 MCP Server 投屏页签及占位画面；下方投屏架构仍为未来设计，不是已实现功能。
 
 ## 目录结构
 
@@ -183,7 +185,7 @@ flowchart LR
 
 ### 当前限制
 
-- 灵矽连接需要平台分配的设备令牌、设备 ID 和客户端 ID；当前没有自动 OTA 地址发现，但支持按配置参数有限重连。
+- 灵矽连接需要平台分配的设备令牌、设备 ID 和客户端 ID；当前没有自动 OTA 地址发现，常驻服务会持续重连。
 - Codex 适配器当前调用本机 `codex exec --json` 命令，并解析其逐行 JSON 输出。项目不使用不存在的官方 Go Agents SDK，也不将 Codex CLI 描述成 Agents API。
 - GitHub 流程创建分支、提交和 PR，但 Merge 按产品要求只打开 GitHub PR 页面，不自动合并。
 - 灵矽连接会验证服务端 hello 响应，并按 YAML 中的重连参数处理断线。

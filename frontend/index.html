@@ -37,30 +37,28 @@
   <main class="shell">
     <header class="topbar"><div class="brand"><span class="brandmark">⌁</span>ai语音编程助手<small>VOICE TO CODE</small></div><div class="top-meta"><span id="service-state">正在连接服务</span><button class="icon-btn" id="reset" title="重置任务" aria-label="重置任务">↻</button></div></header>
     <section class="intro"><div><div class="eyebrow">YOUR VOICE. YOUR WORKSPACE.</div><h1>把想法，写进代码。</h1><p>ai语音编程助手工作台 / 新任务</p></div><button class="demo" id="demo" type="button">▶ 演示任务</button></section>
-    <nav class="view-tabs" aria-label="工作区页面切换" role="tablist"><button class="view-tab active" id="workspace-tab" role="tab" aria-selected="true" aria-controls="workspace-panel">▦ 当前页面</button><button class="view-tab" id="screen-tab" role="tab" aria-selected="false" aria-controls="screen-panel">◉ MCP Server 投屏</button><span class="tab-caption">网页观看 / 投屏画面</span></nav>
-    <div id="workspace-panel" class="view-panel" role="tabpanel" aria-labelledby="workspace-tab">
+    <div id="workspace-panel" class="view-panel">
       <div class="connection"><span id="connection-dot" class="dot"></span><span>灵矽</span><span class="arrow">/</span><span>MCP</span><span class="arrow">/</span><span>本地端侧</span><span class="workspace-label">⌘ <span id="workspace-name">本地工作区</span></span></div>
       <div class="task-settings" aria-label="任务设置"><label class="setting-field" for="model-select">模型<select id="model-select"><option>灵矽</option></select></label><label class="setting-field" for="mode-select">模式<select id="mode-select"><option>任务</option><option>极速</option></select></label></div>
-      <section id="conversation-section" aria-labelledby="conversation-heading"><div class="section-head"><h2 class="section-title" id="conversation-heading"><span class="number">01</span>对话</h2><button class="demo" id="open-execution" type="button">↗ 执行详情</button><span class="section-note" id="session-state">等待新任务</span></div><div class="conversation"><div class="speech"><div class="speech-head">◌ 我的需求 <time id="question-time">文字</time></div><textarea id="question" aria-label="编码需求" placeholder="今天想改点什么？"></textarea></div><div class="speech response"><div class="speech-head">✦ 灵矽 <time id="response-time">待响应</time></div><p id="response" class="empty" aria-live="polite"></p><div class="response-foot"><label><input id="speaker" type="checkbox" checked>语音外放</label><span id="response-foot">等待灵矽语音</span><button class="icon-btn" id="replay" type="button" title="重播灵矽回复" aria-label="重播灵矽回复">▶</button></div></div></div><div class="voice"><button class="mic" id="mic" type="button" title="语音输入" aria-label="语音输入">♩</button><div class="voice-copy"><strong id="voice-title">输入需求后发送给灵矽</strong><span id="voice-detail">当前使用文字输入</span></div><button class="send" id="send" type="button" title="发送任务" aria-label="发送任务" disabled>↑</button></div></section>
+      <section id="conversation-section" aria-labelledby="conversation-heading"><div class="section-head"><h2 class="section-title" id="conversation-heading"><span class="number">01</span>对话</h2><button class="demo" id="open-execution" type="button">↗ 执行详情</button><span class="section-note" id="session-state">等待新任务</span></div><div class="conversation"><div class="speech"><div class="speech-head">◌ 我的需求 <time id="question-time">文字</time></div><textarea id="question" aria-label="编码需求" placeholder="今天想改点什么？"></textarea></div><div class="speech response"><div class="speech-head">✦ 灵矽 <time id="response-time">待响应</time></div><p id="response" class="empty" aria-live="polite"></p><div class="response-foot"><span id="response-foot">等待灵矽语音</span><button class="icon-btn" id="replay" type="button" title="重播灵矽回复" aria-label="重播灵矽回复">▶</button></div></div></div><div class="voice"><button class="mic" id="mic" type="button" title="语音输入" aria-label="语音输入">♩</button><div class="voice-copy"><strong id="voice-title">输入需求后发送给灵矽</strong><span id="voice-detail">当前使用文字输入</span></div><button class="send" id="send" type="button" title="发送任务" aria-label="发送任务" disabled>↑</button></div></section>
       <div id="execution-panel"><h2>执行详情</h2><div id="execution-log" class="execution-log" role="log" aria-label="Codex 与 Git 执行日志"></div>
       <section aria-label="端侧编码状态"><div class="agent-strip"><div class="agent-logo">&gt;_</div><div class="agent-text"><strong>端侧编码 Agent</strong><span id="agent-description">本地工作区 · 等待指令</span></div><div class="segmented" aria-label="编码 Agent"><button class="active" type="button">Codex</button><button type="button" disabled>Claude</button></div><div class="status" id="agent-status"><span class="dot"></span><span id="status-text">尚未开始</span></div></div><div class="timeline" id="timeline"><span>接收需求</span><b></b><span>端侧编码</span><b></b><span>等待合并</span><b></b><span>已合并</span></div></section>
       <section aria-labelledby="diff-heading"><div class="section-head diff-head"><h2 class="section-title" id="diff-heading"><span class="number">02</span>代码变更</h2><div class="diff-actions"><span class="diff-count" id="diff-count"><span class="add-count">+0</span><span class="del-count">−0</span></span><button class="merge" id="merge" type="button" disabled>⌘ Merge</button></div></div><div class="diff"><div class="filebar">▣ <span id="file-name">工作区变更</span><span id="file-state">等待 Codex</span></div><div class="diff-columns"><div class="code-side"><div class="code-title"><strong>原始代码</strong><span>当前工作区</span></div><div class="code-scroll" id="old-code"><div class="code-placeholder">等待任务产生变更</div></div></div><div class="code-side"><div class="code-title"><strong>修改后</strong><span id="new-branch">待生成</span></div><div class="code-scroll" id="new-code"><div class="code-placeholder">等待端侧提交变更</div></div></div></div></div><div class="review-foot"><span id="review-state">◉ 未合并 · 原始代码保持不变</span><span id="test-state">暂无验证结果</span></div></section>
       </div>
     </div>
-    <section id="screen-panel" class="view-panel screen-panel" role="tabpanel" aria-labelledby="screen-tab" hidden><div class="screen-toolbar"><strong>◉ MCP Server 投屏画面</strong><span class="screen-meta"><span class="dot online"></span>网页观看 · 实时任务状态</span></div><div class="screen-stage"><div class="screen-window"><div class="window-bar"><span class="window-dot"></span><span class="window-dot"></span><span class="window-dot"></span><span class="window-address">mcp://workspace/current-screen</span></div><div class="screen-content"><div class="eyebrow">LOCAL WORKSPACE / LIVE VIEW</div><h3>端侧工作画面</h3><p>这里展示 MCP Server 提供的工作区画面入口。真实画面采集和 AirPlay 投屏尚未接入。</p><div class="screen-card"><strong>当前任务状态</strong><div id="screen-status" class="screen-code">等待任务</div></div></div></div><aside class="screen-side"><h3>投屏会话</h3><p>网页观看与外部投屏是两条独立链路，均由 MCP Server 负责。</p><div class="screen-facts"><div class="screen-fact"><span>来源</span><strong>端侧开发环境</strong></div><div class="screen-fact"><span>接收端</span><strong>本机网页</strong></div><div class="screen-fact"><span>权限</span><strong>当前会话</strong></div></div></aside></div></section>
     <footer class="footer"><span>ai语音编程助手 / WORKSPACE</span><span>手机 → 灵矽 → MCP → 端侧</span></footer>
   </main>
   <div id="toast" class="toast" hidden></div>
   <script>
     const $ = id => document.getElementById(id); let socket, activeTaskId = '', executionPhase = 'idle', listening = false, playbackContext, playbackTime = 0;
-    let phase = 'idle';
+    let phase = 'idle', lingxiConnected = false;
     const sample = '帮我给提交按钮加一个 loading 状态，提交时禁止重复点击，按钮文字改成“提交中…”。';
     const originalLines = ['等待任务读取工作区文件'];
     function setConnection(text, state) { $('service-state').textContent = text; $('connection-dot').className = 'dot ' + state; }
     function toast(text) { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 3000); }
     function renderCode(target, lines, type) { target.replaceChildren(); lines.forEach((line, index) => { const row = document.createElement('div'); row.className = 'code-line ' + (type || ''); const number = document.createElement('span'); number.className = 'line-no'; number.textContent = index + 1; const code = document.createElement('span'); code.textContent = line; row.append(number, code); target.append(row); }); }
     function progress(step) { document.querySelectorAll('#timeline span').forEach((item, index) => { item.className = index < step ? 'complete' : index === step ? 'current' : ''; }); }
-    function setPhase(text, style) { $('status-text').textContent = text; $('agent-status').className = 'status ' + style; $('screen-status').textContent = text; }
+    function setPhase(text, style) { $('status-text').textContent = text; $('agent-status').className = 'status ' + style; }
     let capture;
     async function stopVoice(send = true) {
       const current = capture;
@@ -82,7 +80,7 @@
         await current.context?.close();
         if (current.started && current.socket.readyState === WebSocket.OPEN) current.socket.send(JSON.stringify({ type:'listen', state:'stop' }));
         capture = null; listening = false;
-        $('mic').disabled = false; $('mic').classList.remove('recording'); $('mic').setAttribute('aria-pressed', 'false');
+        $('mic').disabled = !lingxiConnected; $('mic').classList.remove('recording'); $('mic').setAttribute('aria-pressed', 'false');
         $('voice-title').textContent = '点击麦克风开始语音输入';
         $('voice-detail').textContent = send ? '音频已发送给灵矽' : '录音已结束';
       }
@@ -90,6 +88,7 @@
     async function toggleVoice() {
       if (listening) { await stopVoice(); return; }
       if (capture || !socket || socket.readyState !== WebSocket.OPEN) return;
+      if (!lingxiConnected) { toast('灵矽正在重连，请稍后再试'); return; }
       stopPlayback(); replaying = false;
       replyAudio.length = 0;
       const current = { socket, timestamp:0 };
@@ -104,9 +103,9 @@
         if (current.context.sampleRate !== 16000) throw new Error('无法以 16kHz 采集音频');
         await current.context.resume();
         current.stream = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true, noiseSuppression:true }, video:false });
-        if (current.stopping || current.socket.readyState !== WebSocket.OPEN) { current.stream.getTracks().forEach(track => track.stop()); throw new Error('语音连接已断开'); }
+        if (current.stopping || !lingxiConnected || current.socket.readyState !== WebSocket.OPEN) { current.stream.getTracks().forEach(track => track.stop()); throw new Error('语音连接已断开'); }
         await current.context.audioWorklet.addModule('capture.js');
-        if (current.socket.readyState !== WebSocket.OPEN) throw new Error('语音连接已断开');
+        if (!lingxiConnected || current.socket.readyState !== WebSocket.OPEN) throw new Error('语音连接已断开');
         current.socket.addEventListener('close', current.disconnected, { once:true });
         current.encoder = new AudioEncoder({ output:chunk => {
           if (current.socket.readyState !== WebSocket.OPEN || current.socket.bufferedAmount > 256 * 1024) { void stopVoice(false); return; }
@@ -127,7 +126,7 @@
         listening = true; $('mic').classList.add('recording'); $('mic').setAttribute('aria-pressed', 'true');
         $('voice-title').textContent = '正在向灵矽发送音频'; $('voice-detail').textContent = '说完后自动结束，也可点击停止';
       } catch (error) { toast(error.message); await stopVoice(false); }
-      finally { $('mic').disabled = false; }
+      finally { $('mic').disabled = !lingxiConnected; }
     }
     window.addEventListener('pagehide', () => { void stopVoice(false); });
     $('voice-title').textContent = '点击麦克风与灵矽对话';
@@ -141,15 +140,15 @@
     const replyAudio = [];
     window.speechSynthesis?.cancel();
     function fallbackAudio() { speechFallback = true; stopPlayback(); $('response-foot').textContent = '灵矽音频解码失败，请使用支持 Opus 的浏览器'; }
-    function scheduleAudio(buffer) { if (speechFallback || replaying || !audioEnabled || !$('speaker').checked || executionView) return; const source = playbackContext.createBufferSource(); source.buffer = buffer; source.connect(playbackContext.destination); playbackTime = Math.max(playbackTime, playbackContext.currentTime); source.start(playbackTime); playbackTime += buffer.duration; sources.add(source); source.onended = () => sources.delete(source); }
+    function scheduleAudio(buffer) { if (speechFallback || replaying || !audioEnabled || executionView) return; const source = playbackContext.createBufferSource(); source.buffer = buffer; source.connect(playbackContext.destination); playbackTime = Math.max(playbackTime, playbackContext.currentTime); source.start(playbackTime); playbackTime += buffer.duration; sources.add(source); source.onended = () => sources.delete(source); }
     function updatePlayback(state) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type:'playback', state })); }
-    function unlockAudio() { if (executionView || !$('speaker').checked) return; updatePlayback('claim'); playbackOwner.postMessage('claim'); playbackContext ||= new AudioContext(); playbackContext.resume().then(() => { audioEnabled = playbackContext.state === 'running'; $('response-foot').textContent = audioEnabled ? '外放已就绪 · 仅灵矽原声' : '点击外放开关开启声音'; }).catch(() => toast('请点击外放开关开启声音')); }
+    function unlockAudio() { if (executionView) return; updatePlayback('claim'); playbackOwner.postMessage('claim'); playbackContext ||= new AudioContext(); playbackContext.resume().then(() => { audioEnabled = playbackContext.state === 'running'; $('response-foot').textContent = audioEnabled ? '外放已就绪 · 仅灵矽原声' : '点击页面开启声音'; }).catch(() => toast('请点击页面开启声音')); }
     async function playAudio(data, remember = true) {
       if (remember) { replyAudio.push(data); if (replyAudio.length > 2000) replyAudio.shift(); }
       void stopVoice(false);
-      if (executionView || !$('speaker').checked) return;
+      if (executionView) return;
       if (speechFallback) return;
-      if (!audioEnabled) { $('response-foot').textContent = '点击外放开关开启声音'; return; }
+      if (!audioEnabled) { $('response-foot').textContent = '点击页面开启声音'; return; }
       try {
         if (window.AudioDecoder) {
           if (!decoder) { const config = { codec:'opus', sampleRate:audioRate, numberOfChannels:1 }; const support = await AudioDecoder.isConfigSupported(config); if (!support.supported) throw new Error('Opus unsupported'); decoder = new AudioDecoder({ output:frame => { const buffer = playbackContext.createBuffer(frame.numberOfChannels, frame.numberOfFrames, frame.sampleRate); for (let channel = 0; channel < frame.numberOfChannels; channel++) frame.copyTo(buffer.getChannelData(channel), { planeIndex:channel, format:'f32-planar' }); frame.close(); scheduleAudio(buffer); }, error:fallbackAudio }); decoder.configure(config); }
@@ -159,11 +158,12 @@
     }
     function sendTask() { const request = $('question').value.trim(); if (!request || !socket || socket.readyState !== WebSocket.OPEN || phase === 'waiting') return; unlockAudio(); phase = 'waiting'; $('session-state').textContent = '等待灵矽回复'; $('response-time').textContent = '等待回复'; $('send').disabled = true; socket.send(JSON.stringify({ type:'task', request })); }
     function handleEvent(event) {
-      if (event.type === 'playback_revoked') { stopPlayback(); audioEnabled = false; $('speaker').checked = false; decoder?.close(); decoder = null; $('response-foot').textContent = '外放已切换至另一页面'; return; }
+      if (event.type === 'playback_revoked') { stopPlayback(); audioEnabled = false; decoder?.close(); decoder = null; $('response-foot').textContent = '外放已切换至另一页面'; return; }
+      if (event.type === 'lingxi_input') { if (!executionView) { $('question').value = event.text || ''; $('question-time').textContent = '语音转写'; $('question').dispatchEvent(new Event('input')); } return; }
       if (event.type === 'lingxi_speech') { void stopVoice(false); if (replaying) { stopPlayback(); replaying = false; } }
       if (event.type === 'lingxi_error' || (event.type === 'lingxi_connection' && event.text !== 'true')) void stopVoice(false);
       if (event.type === 'lingxi_audio') { audioRate = Number(event.text) || 16000; decoder?.close(); decoder = null; return; }
-      if (event.type === 'lingxi_connection') { const connected = event.text === 'true'; $('session-state').textContent = connected ? '灵矽已连接' : '灵矽未连接'; if (!connected) { phase = 'idle'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); } return; }
+      if (event.type === 'lingxi_connection') { lingxiConnected = event.text === 'true'; $('mic').disabled = !lingxiConnected || !!capture?.stopping; $('session-state').textContent = lingxiConnected ? '灵矽已连接' : '灵矽正在重连'; if (!lingxiConnected) phase = 'idle'; $('send').disabled = !lingxiConnected || !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim() || phase === 'waiting'; return; }
       if (event.type === 'lingxi_error') { phase = 'idle'; $('session-state').textContent = event.error || '灵矽连接失败'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); toast(event.error || '灵矽连接失败'); return; }
       if (event.type === 'lingxi_speech') { if (executionView || !event.text) return; phase = 'idle'; $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim(); $('session-state').textContent = '灵矽已回复'; $('response').className = ''; $('response').textContent += ($('response').textContent ? '\n' : '') + event.text; $('response-time').textContent = '已响应'; latestSpeech = event.text; return; }
       if (!['status','thinking','git','diff','ready','pr','error'].includes(event.type)) return;
@@ -175,10 +175,9 @@
       if (event.type === 'pr') { executionPhase = 'ready'; $('merge').disabled = false; const target = $('review-state'); target.textContent = event.text || 'PR 已创建'; if (event.pr?.url) { try { const url = new URL(event.pr.url); if (url.protocol === 'https:' || url.protocol === 'http:') { const link = document.createElement('a'); link.href = url.href; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = ' 打开 GitHub PR'; target.append(link); } } catch (_) {} } setPhase('等待 PR 合并', 'done'); }
       if (event.type === 'error') { executionPhase = 'idle'; setPhase('执行失败', 'error'); }
     }
-    function connect() { const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'; socket = new WebSocket(scheme + location.host + '/ws/ui'); socket.binaryType = 'arraybuffer'; socket.onopen = () => { updatePlayback($('speaker').checked ? 'claim' : 'release'); phase = 'idle'; setConnection('MCP Server · 已连接', 'online'); $('send').disabled = !$('question').value.trim(); }; socket.onclose = () => { stopPlayback(); setConnection('MCP Server · 已断开，正在重连', 'error'); $('send').disabled = true; setTimeout(connect, 2000); }; socket.onerror = () => setConnection('MCP Server · 连接失败', 'error'); socket.onmessage = message => { if (typeof message.data !== 'string') { audioSequence = audioSequence.then(() => playAudio(message.data)); return; } try { handleEvent(JSON.parse(message.data)); } catch (_) { toast('服务端事件格式无效'); } }; }
+    function connect() { const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'; socket = new WebSocket(scheme + location.host + '/ws/ui'); socket.binaryType = 'arraybuffer'; socket.onopen = () => { updatePlayback('claim'); phase = 'idle'; setConnection('MCP Server · 已连接', 'online'); $('send').disabled = true; }; socket.onclose = () => { lingxiConnected = false; $('mic').disabled = true; void stopVoice(false); stopPlayback(); setConnection('MCP Server · 已断开，正在重连', 'error'); $('send').disabled = true; setTimeout(connect, 2000); }; socket.onerror = () => setConnection('MCP Server · 连接失败', 'error'); socket.onmessage = message => { if (typeof message.data !== 'string') { audioSequence = audioSequence.then(() => playAudio(message.data)); return; } try { handleEvent(JSON.parse(message.data)); } catch (_) { toast('服务端事件格式无效'); } }; }
     $('open-execution').onclick = () => { executionWindow = window.open('?view=execution', 'speak2code-execution', 'popup,width=1060,height=800'); if (!executionWindow) toast('请允许此站点打开执行详情窗口'); else executionWindow.focus(); };
     window.addEventListener('message', message => { if (message.origin !== location.origin) return; if (!executionView && message.source === executionWindow && message.data?.type === 'execution-ready') executionWindow.postMessage({ type:'execution-history', events:taskEvents }, location.origin); if (executionView && message.source === window.opener) { if (message.data?.type === 'execution-history') { $('execution-log').replaceChildren(); message.data.events.forEach(handleEvent); } if (message.data?.type === 'execution-event') handleEvent(message.data.event); } });
-    $('speaker').onchange = () => { if ($('speaker').checked) unlockAudio(); else { updatePlayback('release'); audioEnabled = false; stopPlayback(); decoder?.close(); decoder = null; $('response-foot').textContent = '外放已关闭'; } };
     let replaying = false;
     $('replay').onclick = async () => {
       if (!replyAudio.length) { toast('暂无可重播的灵矽原声'); return; }
@@ -188,7 +187,7 @@
       for (const packet of replyAudio.slice()) audioSequence = audioSequence.then(() => playAudio(packet, false));
     };
     document.addEventListener('pointerdown', () => { if (!audioEnabled) unlockAudio(); }, { once:true });
-    document.querySelectorAll('.view-tab').forEach(tab => tab.onclick = () => { const screen = tab.id === 'screen-tab'; document.querySelectorAll('.view-tab').forEach(item => { item.classList.toggle('active', item === tab); item.setAttribute('aria-selected', String(item === tab)); }); $('workspace-panel').hidden = screen; $('screen-panel').hidden = !screen; }); $('question').oninput = () => { $('send').disabled = !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim() || phase === 'waiting'; }; $('mic').onclick = toggleVoice; $('send').onclick = sendTask; $('demo').onclick = () => { $('question').value = sample; $('question').focus(); $('question').dispatchEvent(new Event('input')); }; $('reset').onclick = () => location.reload(); $('merge').onclick = () => { if (executionPhase !== 'ready') return; executionPhase = 'merged'; $('merge').disabled = true; $('review-state').textContent = '已确认变更 · 等待 GitHub PR 合并'; $('session-state').textContent = '等待合并'; progress(3); toast('已确认变更，请在 GitHub PR 页面完成合并'); }; renderCode($('old-code'), originalLines); if (executionView) { document.title = '执行详情 · Codex / Git'; $('service-state').textContent = '执行详情'; if (window.opener) window.opener.postMessage({ type:'execution-ready' }, location.origin); else setConnection('请从对话窗口打开执行详情', 'error'); } else connect();
+    $('question').oninput = () => { $('send').disabled = !lingxiConnected || !socket || socket.readyState !== WebSocket.OPEN || !$('question').value.trim() || phase === 'waiting'; }; $('mic').disabled = true; $('mic').onclick = toggleVoice; $('send').onclick = sendTask; $('demo').onclick = () => { $('question').value = sample; $('question').focus(); $('question').dispatchEvent(new Event('input')); }; $('reset').onclick = () => location.reload(); $('merge').onclick = () => { if (executionPhase !== 'ready') return; executionPhase = 'merged'; $('merge').disabled = true; $('review-state').textContent = '已确认变更 · 等待 GitHub PR 合并'; $('session-state').textContent = '等待合并'; progress(3); toast('已确认变更，请在 GitHub PR 页面完成合并'); }; renderCode($('old-code'), originalLines); if (executionView) { document.title = '执行详情 · Codex / Git'; $('service-state').textContent = '执行详情'; if (window.opener) window.opener.postMessage({ type:'execution-ready' }, location.origin); else setConnection('请从对话窗口打开执行详情', 'error'); } else connect();
   </script>
 </body>
 </html>

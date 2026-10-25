@@ -78,6 +78,10 @@ func (s *Server) BroadcastSpeech(text string) {
 	s.broadcast(task.Event{Type: "lingxi_speech", Text: text})
 }
 
+func (s *Server) BroadcastInput(text string) {
+	s.broadcast(task.Event{Type: "lingxi_input", Text: text})
+}
+
 func (s *Server) BroadcastAudio(data []byte) {
 	if len(data) == 0 {
 		return

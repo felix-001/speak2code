@@ -212,6 +212,12 @@ func TestBroadcastAudioSendsBinaryFrameToUI(t *testing.T) {
 		t.Fatalf("unexpected audio rate: %+v %v", initial, err)
 	}
 	frame := []byte("speech")
+	application.BroadcastInput("用户语音转写")
+	connection.SetReadDeadline(time.Now().Add(time.Second))
+	var input task.Event
+	if err := connection.ReadJSON(&input); err != nil || input.Type != "lingxi_input" || input.Text != "用户语音转写" || input.TaskID != "" {
+		t.Fatalf("unexpected input broadcast: %+v err=%v", input, err)
+	}
 	application.BroadcastSpeech("灵矽语音文字")
 	connection.SetReadDeadline(time.Now().Add(time.Second))
 	var speech task.Event
