@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"speak2code/internal/task"
+	"time"
 )
 
 type Client struct {
@@ -37,7 +38,7 @@ func (c Client) Create(ctx context.Context, branch, diff string) (task.PR, error
 	req.Header.Set("Content-Type", "application/json")
 	client := c.HTTP
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	response, err := client.Do(req)
 	if err != nil {

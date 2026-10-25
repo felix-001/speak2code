@@ -194,7 +194,10 @@ func (c Client) connectOnce(ctx context.Context) error {
 		log.Printf("lingxi MCP received: method=%q has_id=%t decode_error=%v", request.Method, request.ID != nil, decodeErr)
 		response, err := c.Session.Handle(data)
 		if err != nil {
-			response, _ = mcp.ErrorMessage(nil, -32600, err.Error())
+			response, _ = mcp.ErrorMessage(request.ID, -32600, err.Error())
+		}
+		if len(response) == 0 {
+			continue
 		}
 		if err := writeMessage(websocket.TextMessage, response); err != nil {
 			log.Printf("lingxi MCP response failed: method=%q error=%v", request.Method, err)

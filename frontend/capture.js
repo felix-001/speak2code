@@ -9,7 +9,7 @@ class VoiceCapture extends AudioWorkletProcessor {
     this.heardVoice = false;
     this.port.onmessage = () => {
       this.active = false;
-      if (this.offset) this.port.postMessage(this.samples);
+      if (this.offset) this.port.postMessage(this.samples.subarray(0, this.offset));
       this.port.postMessage('stopped');
     };
   }

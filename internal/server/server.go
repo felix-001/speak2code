@@ -10,9 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// clientWriteTimeout prevents a stalled client from blocking broadcasts.
+const clientWriteTimeout = 10 * time.Second
 
 type Server struct {
 	Service        *task.Service
@@ -71,7 +75,9 @@ func (s *Server) sendText(text string) error {
 }
 
 func (s *Server) SetAudioSender(sender func([]byte) error) {
+	s.mu.Lock()
 	s.Audio = sender
+	s.mu.Unlock()
 }
 
 func (s *Server) BroadcastSpeech(text string) {
@@ -89,7 +95,7 @@ func (s *Server) BroadcastAudio(data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if client := s.playbackClient; client != nil {
-		if err := client.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		if err := writeClient(client, websocket.BinaryMessage, data); err != nil {
 			_ = client.Close()
 			delete(s.clients, client)
 			s.playbackClient = nil
@@ -117,7 +123,7 @@ func (s *Server) broadcast(event task.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for client := range s.clients {
-		if err := client.WriteMessage(websocket.TextMessage, data); err != nil {
+		if err := writeClient(client, websocket.TextMessage, data); err != nil {
 			_ = client.Close()
 			delete(s.clients, client)
 		}
@@ -163,8 +169,11 @@ func (s *Server) ui(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			if s.Audio != nil && len(data) > 0 {
-				_ = s.Audio(data)
+			s.mu.Lock()
+			audio := s.Audio
+			s.mu.Unlock()
+			if audio != nil && len(data) > 0 {
+				_ = audio(data)
 			}
 			continue
 		}
@@ -202,7 +211,7 @@ func (s *Server) ui(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) claimPlayback(client *websocket.Conn) {
 	if previous := s.playbackClient; previous != nil && previous != client {
-		_ = previous.WriteMessage(websocket.TextMessage, task.EncodeEvent(task.Event{Type: "playback_revoked"}))
+		_ = writeClient(previous, websocket.TextMessage, task.EncodeEvent(task.Event{Type: "playback_revoked"}))
 	}
 	s.playbackClient = client
 }
@@ -232,10 +241,20 @@ func (s *Server) lingxi(w http.ResponseWriter, r *http.Request) {
 		}
 		response, err := session.Handle(data)
 		if err != nil {
-			response, _ = mcp.ErrorMessage(nil, -32600, err.Error())
+			request, _ := mcp.Decode(data)
+			response, _ = mcp.ErrorMessage(request.ID, -32600, err.Error())
+		}
+		if len(response) == 0 {
+			continue
 		}
 		_ = client.WriteMessage(websocket.TextMessage, response)
 	}
+}
+func writeClient(client *websocket.Conn, messageType int, data []byte) error {
+	if err := client.SetWriteDeadline(time.Now().Add(clientWriteTimeout)); err != nil {
+		return err
+	}
+	return client.WriteMessage(messageType, data)
 }
 func StaticPath() string {
 	return "frontend"

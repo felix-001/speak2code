@@ -117,8 +117,9 @@
           if (event.data === 'silence') { void stopVoice(); return; }
           if (event.data === 'stopped') { current.stopped?.(); return; }
           if (current.encoder.state !== 'configured') return;
-          const frame = new AudioData({ format:'f32', sampleRate:16000, numberOfFrames:960, numberOfChannels:1, timestamp:current.timestamp, data:event.data });
-          current.timestamp += 60000; current.encoder.encode(frame); frame.close();
+          const frames = event.data.length; if (!frames) return;
+          const frame = new AudioData({ format:'f32', sampleRate:16000, numberOfFrames:frames, numberOfChannels:1, timestamp:current.timestamp, data:event.data });
+          current.timestamp += frames / 16000 * 1e6; current.encoder.encode(frame); frame.close();
         };
         current.socket.send(JSON.stringify({ type:'listen', state:'start' })); current.started = true;
         current.source = current.context.createMediaStreamSource(current.stream);

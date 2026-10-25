@@ -27,6 +27,17 @@ func TestCreatePRRequiresConfig(t *testing.T) {
 	}
 }
 
+func TestCreatePRUsesDefaultClientWithTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"number":7,"html_url":"https://github.com/o/r/pull/7"}`))
+	}))
+	defer server.Close()
+	result, err := (Client{Token: "token", Owner: "o", Repo: "r", BaseURL: server.URL}).Create(context.Background(), "lingxi/task", "diff")
+	if err != nil || result.Number != 7 {
+		t.Fatalf("unexpected PR via default client: %+v %v", result, err)
+	}
+}
+
 func TestCreatePRErrors(t *testing.T) {
 	for _, body := range []string{`{"message":"bad"}`, `{`} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

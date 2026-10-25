@@ -2,10 +2,12 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -413,4 +415,98 @@ type failingPR struct{}
 
 func (failingPR) Create(context.Context, string, string) (PR, error) {
 	return PR{}, context.DeadlineExceeded
+}
+
+func TestServiceRunsTasksSequentially(t *testing.T) {
+	runner := &blockingRunner{entered: make(chan int, 2), release: make(chan struct{})}
+	service := NewService(runner, nil, t.TempDir())
+	service.Start(context.Background(), "first", "request", func(Event) {})
+	if id := <-runner.entered; id != 1 {
+		t.Fatalf("unexpected first task %d", id)
+	}
+	service.Start(context.Background(), "second", "request", func(Event) {})
+	select {
+	case id := <-runner.entered:
+		t.Fatalf("task %d ran concurrently", id)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(runner.release)
+	if id := <-runner.entered; id != 2 {
+		t.Fatalf("unexpected second task %d", id)
+	}
+}
+
+type blockingRunner struct {
+	entered chan int
+	release chan struct{}
+	mu      sync.Mutex
+	count   int
+}
+
+func (r *blockingRunner) Run(ctx context.Context, _ string, _ func(Event)) (string, error) {
+	r.mu.Lock()
+	r.count++
+	id := r.count
+	r.mu.Unlock()
+	r.entered <- id
+	select {
+	case <-r.release:
+		return "", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func TestRememberCapsEventHistory(t *testing.T) {
+	service := NewService(testRunner{}, nil, t.TempDir())
+	for i := 0; i < maxRememberedEvents+10; i++ {
+		service.Remember(Event{Type: "status"})
+	}
+	if len(service.events) != maxRememberedEvents {
+		t.Fatalf("expected capped history, got %d", len(service.events))
+	}
+}
+
+func TestCommandRunnerReadsLongEventLines(t *testing.T) {
+	workspace := t.TempDir()
+	runGit(t, workspace, "init")
+	runGit(t, workspace, "config", "user.email", "test@example.com")
+	runGit(t, workspace, "config", "user.name", "Test")
+	runGit(t, workspace, "add", ".")
+	runGit(t, workspace, "commit", "--allow-empty", "-m", "initial")
+	command := filepath.Join(workspace, "fake-codex")
+	longText := strings.Repeat("x", 200*1024)
+	script := fmt.Sprintf("#!/bin/sh\nprintf '{\"text\":\"%s\"}\\n'\n", longText)
+	if err := os.WriteFile(command, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	runner := CommandRunner{Workspace: workspace, Command: command}
+	var longest int
+	if _, err := runner.Run(context.Background(), "request", func(event Event) {
+		if len(event.Text) > longest {
+			longest = len(event.Text)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if longest < len(longText) {
+		t.Fatalf("long event line was truncated: %d", longest)
+	}
+}
+
+func TestGitDiffLeavesIndexClean(t *testing.T) {
+	workspace := t.TempDir()
+	runGit(t, workspace, "init")
+	if err := os.WriteFile(filepath.Join(workspace, "hello.go"), []byte("package main\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := gitDiff(context.Background(), workspace)
+	if err != nil || !strings.Contains(diff, "hello.go") {
+		t.Fatalf("unexpected diff: %q, error: %v", diff, err)
+	}
+	command := exec.Command("git", "-C", workspace, "ls-files", "--", "hello.go")
+	output, err := command.Output()
+	if err != nil || strings.TrimSpace(string(output)) != "" {
+		t.Fatalf("intent-to-add entry leaked into index: %q, %v", output, err)
+	}
 }

@@ -34,12 +34,19 @@ type PR struct {
 	Branch string `json:"branch"`
 }
 
+// maxRememberedEvents bounds the in-memory event history.
+const maxRememberedEvents = 256
+
+// maxCodexEventBytes allows large aggregated_output payloads on a single line.
+const maxCodexEventBytes = 16 << 20
+
 type Service struct {
 	runner    Runner
 	prs       PRClient
 	workspace string
 	Push      bool
 	mu        sync.Mutex
+	runMu     sync.Mutex
 	events    []Event
 }
 
@@ -52,6 +59,8 @@ func (s *Service) Start(ctx context.Context, taskID, request string, publish fun
 		return
 	}
 	go func() {
+		s.runMu.Lock()
+		defer s.runMu.Unlock()
 		log.Printf("task start: task_id=%s workspace=%s request=%q", taskID, s.workspace, request)
 		publish(Event{TaskID: taskID, Type: "status", Text: "已接收需求"})
 		diff, err := s.runner.Run(ctx, request, func(event Event) { event.TaskID = taskID; publish(event) })
@@ -92,6 +101,11 @@ func (s *Service) Remember(event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
+	if len(s.events) > maxRememberedEvents {
+		kept := make([]Event, maxRememberedEvents)
+		copy(kept, s.events[len(s.events)-maxRememberedEvents:])
+		s.events = kept
+	}
 }
 
 type CommandRunner struct {
@@ -120,6 +134,7 @@ func (r CommandRunner) Run(ctx context.Context, request string, publish func(Eve
 		return "", fmt.Errorf("codex: %w", err)
 	}
 	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxCodexEventBytes)
 	for scanner.Scan() {
 		if text := codexEventText(scanner.Bytes()); text != "" {
 			publish(Event{Type: "thinking", Text: text})
@@ -170,12 +185,14 @@ func codexEventText(data []byte) string {
 	return ""
 }
 func gitDiff(ctx context.Context, workspace string) (string, error) {
+	untracked := listUntracked(ctx, workspace)
 	intentToAdd := exec.CommandContext(ctx, "git", "add", "-N", "--", ".")
 	intentToAdd.Dir = workspace
 	if output, err := intentToAdd.CombinedOutput(); err != nil {
 		log.Printf("git add intent-to-add failed: workspace=%s error=%v output=%q", workspace, err, strings.TrimSpace(string(output)))
 		return "", fmt.Errorf("git add intent-to-add: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	defer resetIntentToAdd(ctx, workspace, untracked)
 	log.Printf("git diff start: workspace=%s command=%q", workspace, []string{"git", "diff", "--", "."})
 	command := exec.CommandContext(ctx, "git", "diff", "--", ".")
 	command.Dir = workspace
@@ -186,6 +203,37 @@ func gitDiff(ctx context.Context, workspace string) (string, error) {
 	}
 	log.Printf("git diff completed: workspace=%s diff_bytes=%d", workspace, len(output))
 	return string(output), nil
+}
+
+// listUntracked returns untracked, non-ignored paths so intent-to-add entries
+// can be removed again after the diff is captured.
+func listUntracked(ctx context.Context, workspace string) []string {
+	command := exec.CommandContext(ctx, "git", "ls-files", "-o", "--exclude-standard", "-z")
+	command.Dir = workspace
+	output, err := command.Output()
+	if err != nil {
+		log.Printf("git ls-files untracked failed: workspace=%s error=%v", workspace, err)
+		return nil
+	}
+	paths := []string{}
+	for _, path := range strings.Split(string(output), "\x00") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func resetIntentToAdd(ctx context.Context, workspace string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	args := append([]string{"reset", "-q", "--"}, paths...)
+	command := exec.CommandContext(ctx, "git", args...)
+	command.Dir = workspace
+	if output, err := command.CombinedOutput(); err != nil {
+		log.Printf("git reset intent-to-add failed: workspace=%s error=%v output=%q", workspace, err, strings.TrimSpace(string(output)))
+	}
 }
 
 func commitWorkspace(ctx context.Context, workspace, branch string) error {

@@ -337,3 +337,27 @@ func TestStaticPathUsesDefault(t *testing.T) {
 		t.Fatalf("unexpected default path %q", got)
 	}
 }
+
+func TestLingxiWebSocketSkipsNotificationResponses(t *testing.T) {
+	application := New(task.NewService(task.MockRunner{Diff: ""}, nil, t.TempDir()), t.TempDir())
+	httpServer := httptest.NewServer(application.Handler())
+	defer httpServer.Close()
+	url := "ws" + httpServer.URL[len("http"):] + "/ws/lingxi"
+	connection, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	notification := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	wrapped, err := json.Marshal(map[string]any{"type": "mcp", "payload": json.RawMessage(notification)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteMessage(websocket.TextMessage, wrapped); err != nil {
+		t.Fatal(err)
+	}
+	connection.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, data, err := connection.ReadMessage(); err == nil {
+		t.Fatalf("notification unexpectedly produced response %q", data)
+	}
+}

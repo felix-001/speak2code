@@ -54,3 +54,21 @@ func TestSessionRejectsInvalidParamsAndUnknownMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSessionDoesNotRespondToNotifications(t *testing.T) {
+	called := false
+	session := Session{Call: func(_, _ string) { called = true }}
+	params, _ := json.Marshal(map[string]any{"name": "self.code.request", "arguments": map[string]string{"request": "修复"}})
+	data, _ := Wrap(Request{JSONRPC: "2.0", Method: "tools/call", Params: params})
+	response, err := session.Handle(data)
+	if err != nil || len(response) != 0 {
+		t.Fatalf("notification produced response %q: %v", response, err)
+	}
+	if !called {
+		t.Fatal("notification tool call was not executed")
+	}
+	data, _ = Wrap(Request{JSONRPC: "2.0", Method: "unknown"})
+	if response, err = session.Handle(data); err != nil || len(response) != 0 {
+		t.Fatalf("notification produced error response %q: %v", response, err)
+	}
+}
