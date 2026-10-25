@@ -2,7 +2,7 @@
 
 一个探索“用自然语言驱动本地编码 Agent”的产品原型。
 
-MCP Server 向灵矽注册编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。用户在网页上与灵矽交互；灵矽理解和编排需求，调用 MCP Server 的能力将任务交给端侧 Codex / Claude。灵矽对话区域只显示其 TTS 返回的语音对应文字，并播放下行语音；Codex 执行消息、Git 状态、diff 和 PR 由 MCP Server 推送到独立执行窗口。
+MCP Server 向灵矽提供编程工具能力，同时通过 Web Server 提供手机 / Pad 可访问的网页。浏览器只连接本地服务，由服务转发语音和文字给灵矽；灵矽理解和编排需求，通过 MCP 调用本机 Codex CLI。输入区显示 STT 转写，回复区显示 TTS 对应文字并播放原声；Codex、Git、diff 和 PR 事件经主窗口转交独立执行窗口。当前没有 Claude 执行适配器。
 
 > 当前仓库提供一个可运行的 Go MCP Server MVP。灵矽、Codex CLI 和 GitHub 通过 `config.yaml` 配置；未配置真实凭据时仍可启动页面进行本地联调。
 
@@ -83,7 +83,7 @@ curl http://localhost:18080/healthz
 
 填写 Codex 和 GitHub 配置后，任务流程为：灵矽通过 MCP `tools/call` 发送编码需求，服务端调用 `codex exec --json`，逐行读取 JSON 输出并把事件实时推送到浏览器；任务完成后读取工作区 diff，创建 `lingxi/<task-id>` 分支并提交，随后 push 到远端并调用 GitHub API 创建 PR。空白编码需求会被忽略，不会启动 Codex，也不会执行 `git diff`。
 
-如果只想验证页面，不需要填写灵矽、Codex 或 GitHub 凭据，直接启动服务即可；页面中的演示任务使用前端模拟数据，不会修改真实仓库。
+如果只想验证页面加载，不需要填写灵矽、Codex 或 GitHub 凭据。实际工作台的“演示任务”只填入示例需求，不模拟执行；发送后仍需要真实灵矽服务。独立设计原型才会演示模拟进度。
 
 ## 设计原型
 
@@ -109,35 +109,33 @@ open prototypes/index.html
 
 ```mermaid
 flowchart LR
-    subgraph client["用户入口"]
-        device["手机 / Pad 浏览器"]
-        display["电视等投屏接收端"]
+    subgraph browser["手机 / Pad / 桌面浏览器"]
+        page["对话工作台"]
+        details["独立执行窗口"]
+        page -->|"同源 postMessage：历史与实时事件"| details
     end
-
-    subgraph server["MCP Server"]
-        page["Web 页面<br/>由 Web Server 提供"]
-        tools["MCP 能力<br/>任务下发 · 结果回传"]
-        casting["画面采集与投屏<br/>获取画面 · 发起 / 控制投屏"]
+    subgraph server["本地 Go MCP Server"]
+        web["HTTP 静态页面 / ws/ui"]
+        bridge["灵矽设备端 WSS 客户端"]
+        tools["MCP Session / self.code.request"]
+        tasks["异步任务服务"]
+        runner["Codex CLI 适配器"]
+        git["Git 提交 / 推送与 GitHub API 客户端"]
     end
-    lingxi["灵矽<br/>接收编程任务 · 理解需求"]
-
-    subgraph edge["端侧开发环境"]
-        agents["Codex / Claude<br/>执行编程任务"]
-        workspace["本地代码仓库<br/>读取代码 · 修改文件 · 运行测试"]
-        screen["当前工作画面"]
-        agents <--> workspace
-    end
-
-    device <-->|"访问网页 · 提交需求 · 查看进度"| page
-    page <-->|"语音对话 · 回复文字与音频"| lingxi
-    tools -->|"Codex / Git 事件 · 独立执行窗口"| page
-    tools -->|"注册能力"| lingxi
-    lingxi -->|"调用已注册的工具"| tools
-    tools -->|"调用端侧 Agent"| agents
-    agents -.->|"执行状态 · 代码变更 · 测试结果"| tools
-    screen -->|"提供画面来源"| casting
-    casting -->|"发起投屏 · AirPlay 等协议"| display
-    casting -->|"网页画面流"| page
+    lingxi["灵矽：语音识别 / 对话 / 任务编排"]
+    workspace["配置的本地 Git 工作区"]
+    github["GitHub Pull Request"]
+    page <-->|"HTTP / WebSocket：音频、文字、事件"| web
+    web <-->|"音频与文字发送 / STT、TTS、连接状态"| bridge
+    bridge <-->|"单条 WSS：hello / listen / Opus / MCP"| lingxi
+    bridge <-->|"MCP 请求与即时响应"| tools
+    tools -->|"编码需求"| tasks
+    tasks --> runner
+    runner <-->|"codex exec / git diff"| workspace
+    tasks -->|"GitHub 配置完整时"| git
+    git <-->|"分支 / 提交 / push"| workspace
+    git -->|"创建 PR，base=main"| github
+    tasks -->|"执行事件 / diff / PR"| web
 ```
 
 各层职责如下：
@@ -154,7 +152,9 @@ flowchart LR
 
 工作台点击“执行详情”打开独立窗口，补齐当前对话页面已收到的执行记录；对话页面关闭或刷新后不保留历史。执行窗口不播放语音。主窗口默认外放，不提供外放复选框；浏览器可能要求先点击页面，声音使用当前设备的默认输出设备。仅播放和重播灵矽原始语音，不调用系统文字朗读；不支持 WebCodecs Opus 或解码失败时显示错误。MCP Server 只向一个对话连接发送音频，新页面连接或请求播放时移交归属，并通知旧页面停止已排队的音源。同源页面另通过 BroadcastChannel 停止本地播放。外放受浏览器权限和设备输出设置限制。
 
-灵矽返回的 `stt` 立即更新“我的需求”，仅用于显示，不再次作为文字发送；更新频率由灵矽决定，不保证逐字返回。连接断开时禁用麦克风，恢复后自动启用。实际工作台已移除 MCP Server 投屏页签及占位画面；下方投屏架构仍为未来设计，不是已实现功能。
+灵矽返回的 `stt` 立即更新“我的需求”，仅用于显示，不再次作为文字发送；更新频率由灵矽决定，不保证逐字返回。连接断开时禁用麦克风，恢复后自动启用。当前架构图只包含已实现组件，不包含投屏；未来投屏职责仍归 MCP Server。
+
+MCP 工具立即返回“任务已接收”，最终 diff 和 PR 通过网页事件展示，尚未异步回传灵矽。未完整配置 GitHub 时只产生 diff 和 ready；配置完整后会在同一工作区创建分支、提交全部变更、push 并创建 PR，不等待页面确认，也没有自动回滚或并发隔离。
 
 ## 目录结构
 
@@ -166,8 +166,9 @@ flowchart LR
 │   └── drafts/                # 设计草稿，当前为空
 ├── cmd/speak2code/        # Go 服务入口
 ├── internal/              # 灵矽 MCP、任务、Codex、GitHub 和 Web 服务
+├── frontend/              # 实际工作台与音频采集 worklet
 ├── prototypes/
-│   └── index.html         # Web Server 托管的前端页面
+│   └── index.html         # 独立静态演示原型
 ├── go.mod
 └── README.md
 ```
@@ -178,7 +179,7 @@ flowchart LR
 
 - 文字需求输入和演示任务填充。
 - 浏览器麦克风直接上传裸 Opus 音频，以及灵矽下行语音播放（具体支持取决于浏览器）。
-- Codex / Claude 的端侧 Agent 选择交互。
+- Codex CLI 执行适配器；Claude 选项禁用。
 - 任务接收、编码、验证、等待合并、已合并的状态时间线。
 - 原始代码与修改后代码的差异展示。
 - 重置任务、合并确认和基础键盘可访问性支持。
@@ -187,12 +188,12 @@ flowchart LR
 
 - 灵矽连接需要平台分配的设备令牌、设备 ID 和客户端 ID；当前没有自动 OTA 地址发现，常驻服务会持续重连。
 - Codex 适配器当前调用本机 `codex exec --json` 命令，并解析其逐行 JSON 输出。项目不使用不存在的官方 Go Agents SDK，也不将 Codex CLI 描述成 Agents API。
-- GitHub 流程创建分支、提交和 PR，但 Merge 按产品要求只打开 GitHub PR 页面，不自动合并。
+- GitHub 流程创建分支、提交和 PR。PR 事件提供链接，Merge 按钮仅更新本地确认状态，不自动打开链接或合并。
 - 灵矽连接会验证服务端 hello 响应，并按 YAML 中的重连参数处理断线。
 - 麦克风以 `listen / start / manual`、二进制裸 Opus、`listen / stop` 的顺序直接上传音频，不使用 MediaRecorder 容器或浏览器语音识别。手动输入的文字仍可独立发送；只有灵矽通过 MCP 调用编程工具才启动 Codex。下行裸 Opus 使用握手协商采样率解码并排队播放。页面区分灵矽连接状态，网页 WebSocket 断线后自动重连。真实对话仍依赖灵矽连接及智能体绑定配置。
 - 工作区授权、任务持久化、多人会话隔离和生产部署仍需继续加固。
 
-页面顶部的“未连接服务”、响应中的“模拟响应”和验证结果中的“非真实测试”是当前原型状态的明确提示。
+独立原型中的模拟响应与验证文案不代表真实服务结果。实际服务没有独立测试结果校验、用户鉴权或会话隔离，不应直接暴露到不受信任网络。
 
 ## 后续演进建议
 
